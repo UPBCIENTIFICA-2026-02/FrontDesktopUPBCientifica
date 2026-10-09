@@ -35,7 +35,7 @@ DEFAULT_CONFIG = {
     "video_folder": "",
     "sync_folder": "",
     "sync_schedule": "Manual",
-    "jobs": [],       # trabajos HPC creados localmente (demo)
+    "vista_archivos": "lista",           # "lista" | "cuadricula"
 }
 
 
@@ -44,13 +44,13 @@ def load_config():
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     HOME_DIR.mkdir(parents=True, exist_ok=True)
     cfg = dict(DEFAULT_CONFIG)
-    cfg["jobs"] = []
     if CONFIG_FILE.exists():
         try:
             cfg.update(json.loads(CONFIG_FILE.read_text(encoding="utf-8")))
         except Exception:
             pass
-    cfg.pop("server_url", None)  # campo de la versión anterior, ya sin uso
+    for viejo in ("server_url", "jobs"):   # campos de versiones anteriores, ya sin uso
+        cfg.pop(viejo, None)
     return cfg
 
 

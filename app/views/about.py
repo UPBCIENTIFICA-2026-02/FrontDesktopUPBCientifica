@@ -14,8 +14,8 @@ class AboutView(ctk.CTkScrollableFrame):
         ("Distributed Storage", "HTTP/REST", "Conectado a node-repository (8084)", "ok"),
         ("Streaming", "HTTP/REST", "Conectado a node-media (8083)", "ok"),
         ("Shared File", "HTTP/REST", "Simulado: el servicio no existe en el backend", "warn"),
-        ("File Sync", "gRPC", "Pendiente: falta generar el stub del .proto", "neutral"),
-        ("HPC", "RMI", "Pendiente: RMI solo existe en la JVM", "neutral"),
+        ("File Sync", "gRPC", "Simulado: conectividad real, falta el stub del .proto", "warn"),
+        ("HPC", "RMI", "Simulado: pantalla completa; RMI solo existe en la JVM", "warn"),
     ]
 
     def __init__(self, master, app):
@@ -28,7 +28,7 @@ class AboutView(ctk.CTkScrollableFrame):
             "Sistemas Distribuidos 2026-20 · Ingeniería de Sistemas e Informática · UPB Bucaramanga\n\n"
             "Consumidor 'Desktop Windows/Linux' de la Figura 1 del proyecto. Python + CustomTkinter.\n"
             "Comparte diseño (Material 3) y contratos con el cliente móvil (Kotlin + Jetpack Compose): se conecta\n"
-            "directamente a cada servicio con su protocolo nativo, sin pasar por el gateway del cliente Web."
+            "se conecta directamente a cada servicio con su protocolo nativo, sin pasar por el gateway del cliente Web."
         )
         ctk.CTkLabel(c, text=txt, justify="left", text_color=ON_SURFACE,
                      font=font("body")).pack(anchor="w", padx=20, pady=20)

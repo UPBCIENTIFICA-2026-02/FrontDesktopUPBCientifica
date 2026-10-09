@@ -10,8 +10,11 @@ Cliente de escritorio del sistema distribuido **UPB-CIENTÍFICA** (proyecto de
 Este cliente está **alineado con el cliente móvil** (`FrontMovilUPBCientifica`,
 Kotlin + Jetpack Compose):
 
-- **Mismo diseño:** paleta Material Design 3 (primario `#6750A4`), tarjetas,
-  listas con divisores, botones redondeados, modo claro y oscuro.
+- **Mismo diseño:** la paleta del tema `UpbCientificaTheme` del móvil (azul
+  `#1A5BC0`, turquesa y violeta, neutros fríos), con modo claro y oscuro, y las
+  mismas pantallas: inicio con saludo y estado de sincronización, iconos por
+  tipo de archivo, buscador en píldora, migas de pan, vista de lista o
+  cuadrícula, hoja de detalles, avatar con menú de cuenta y pestaña HPC.
 - **Mismos contratos y puertos:** se conecta **directamente** a cada servicio
   con su protocolo nativo, sin pasar por el gateway del cliente Web.
 
@@ -21,8 +24,8 @@ Kotlin + Jetpack Compose):
 | Distributed Storage | HTTP/REST | **Conectado** a node-repository (8084): listar, navegar carpetas, subir, descargar, eliminar |
 | Streaming           | HTTP/REST | **Conectado** a node-media (8083): catálogo, búsqueda, paginación, reproducir |
 | Shared File         | HTTP/REST | Simulado: el servicio no existe en el backend (compartir / revocar listos) |
-| File Sync           | gRPC      | Pendiente: falta generar el stub del `.proto` (detección local de cambios) |
-| HPC                 | RMI       | Pendiente: RMI solo existe en la JVM (cola local de trabajos) |
+| File Sync           | gRPC      | Simulado: indicador en la barra superior (conectividad real, ciclo simulado hasta generar el stub del `.proto`) |
+| HPC                 | RMI       | Simulado: pantalla completa (clúster, trabajos con progreso, envío); RMI solo existe en la JVM |
 
 Además, cada servicio REST puede pasar a **modo simulado** desde Configuración, y
 el login ofrece **"Entrar sin servidor (demo)"** para usar la app sin backend.
@@ -39,9 +42,10 @@ upbcientifica-desktop/
 └── app/
     ├── api_client.py             # Composición de dependencias (como MainActivity.kt)
     ├── config.py                 # Persistencia (JSON) + rutas + valores por defecto
-    ├── theme.py                  # Tokens de color Material 3 (claro/oscuro) + tipografía
+    ├── theme.py                  # Paleta de ui/theme/Theme.kt (claro/oscuro), formas y tipografía
     ├── assets/upb_material3.json # Tema de CustomTkinter con la paleta del móvil
-    ├── widgets.py                # Componentes UI (Card, ListItem, Divider, botones, StatePanel)
+    ├── widgets.py                # Componentes de ui/components (Avatar, BarraBusqueda, EstadoVacio,
+    │                             #   EsqueletoLista, IconoTipoArchivo, HojaDetalles, botones, chips)
     ├── utils.py                  # Utilidades (tamaños, hilos para red, abrir con el sistema)
     ├── app.py                    # Ventana principal: navegación lateral + barra superior
     ├── network/                  # Clientes de bajo nivel (como network/ del móvil)
@@ -54,16 +58,17 @@ upbcientifica-desktop/
     │   ├── storage.py            #   /storage/...
     │   ├── sharedfile.py         #   /shared-file/...
     │   ├── streaming.py          #   /streaming/...
-    │   └── pendientes.py         #   File Sync (gRPC) y HPC (RMI)
+    │   ├── hpc.py                #   EnviarTrabajo / ConsultarEstadoTrabajo / ObtenerEstadoCluster (simulado)
+    │   └── filesync.py           #   Ciclo de sincronización (simulado) + conectividad real
     └── views/                    # Una vista por archivo
         ├── login.py              # Usuario + contraseña (igual que LoginScreen.kt)
-        ├── dashboard.py          # Tiles de servicios + sesión + estado de conexión
-        ├── storage.py            # Mis archivos
+        ├── dashboard.py          # Saludo, estado de sync, tarjetas de servicios, conexión
+        ├── storage.py            # Mis archivos (buscar, ordenar, lista/cuadrícula, detalles)
         ├── shared_files.py       # Compartidos conmigo
         ├── compartir_dialog.py   # Compartir con usuario/grupo y permisos Unix
-        ├── streaming.py          # Catálogo del servidor + videos locales
-        ├── sync.py               # Sincronización
-        ├── jobs.py               # Trabajos HPC
+        ├── streaming.py          # Catálogo en cuadrícula + videos locales
+        ├── hpc.py                # Clúster, trabajos y "Nuevo trabajo"
+        ├── sync.py               # Carpeta local a sincronizar
         ├── album.py              # Álbum de fotos
         ├── settings.py           # Conexión + apariencia
         ├── conexion_form.py      # Formulario de conexión (Configuración y login)
@@ -151,4 +156,4 @@ de cada módulo en `app/data/`):
 
 - `python main.py --smoke` — recorre todas las vistas en modo demo y cierra.
 - `python main.py --stay view=<nombre>` — abre una vista en modo demo
-  (`dashboard`, `storage`, `shared`, `streaming`, `sync`, `jobs`, `album`, `settings`, `about`).
+  (`dashboard`, `storage`, `shared`, `streaming`, `hpc`, `sync`, `album`, `settings`, `about`).

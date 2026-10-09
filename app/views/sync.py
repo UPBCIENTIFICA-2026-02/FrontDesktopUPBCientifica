@@ -18,10 +18,11 @@ class SyncView(ctk.CTkFrame):
         section_title(self, "Sincronización",
                       "Copia síncrona de una carpeta local con tu Home en el servidor.").pack(anchor="w", pady=(0, 12))
 
-        banner(self, "Servicio de sincronización aún no disponible",
-               f"File Sync habla gRPC (node-sync en {app.api.conf.direccion_sync}). Falta generar el stub "
-               "del .proto en el cliente; mientras tanto se detectan los cambios en local y se "
-               "sincronizarán cuando el servicio esté conectado.").pack(fill="x", pady=(0, 12))
+        banner(self, "Sincronización simulada",
+               f"File Sync habla gRPC (node-sync en {app.api.conf.direccion_sync}). Igual que en el móvil, "
+               "el indicador de la barra superior muestra un ciclo simulado (la conectividad sí es real) "
+               "hasta que se genere el stub del .proto. Aquí eliges la carpeta local que se sincronizará.").pack(
+            fill="x", pady=(0, 12))
 
         top = card(self)
         top.pack(fill="x")

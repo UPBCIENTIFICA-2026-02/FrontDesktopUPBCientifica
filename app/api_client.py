@@ -12,16 +12,14 @@ REST o datos de prueba.
   Distributed Storage  REST        Real (node-repository:8084) o Home local
   Streaming            REST        Real (node-media:8083) o catálogo simulado
   Shared File          REST        Simulado (el servicio no existe aún)
-  File Sync            gRPC        Pendiente (local)
-  HPC                  RMI         Pendiente (cola local)
+  File Sync            gRPC        Simulado (conectividad real; falta el stub)
+  HPC                  RMI         Simulado (RMI no existe fuera de la JVM)
 """
 
 import os
 import socket
-from datetime import datetime
 from urllib.parse import urlparse
 
-from .config import save_config
 from .network.configuracion import Configuracion, NAMESPACE_AUTH
 from .network.soap_client import SoapClient
 from .network.rest_client import RestClient
@@ -30,6 +28,8 @@ from .data.auth import AuthRepository
 from .data.storage import StorageRepository
 from .data.sharedfile import SharedFileRepository
 from .data.streaming import StreamingRepository
+from .data.hpc import HpcRepository
+from .data.filesync import FileSyncRepository
 
 
 class ApiClient:
@@ -38,6 +38,8 @@ class ApiClient:
         self.tokens = TokenManager()
         self.sesion = None          # SessionResult tras un login real
         self.modo_demo = False      # True = sin servidor, todo simulado
+        self.filesync = FileSyncRepository()
+        self.hpc = HpcRepository()
         self.reconfigurar()
 
     # --- Composición de dependencias ---------------------------------------
@@ -70,13 +72,20 @@ class ApiClient:
         self.modo_demo = False
         self.reconfigurar()
         self.sesion = self.auth.login(usuario, contrasena, origen_cliente="desktop")
+        self._nueva_sesion()
         return self.sesion
+
+    def _nueva_sesion(self):
+        """Repositorios que guardan estado por usuario empiezan limpios en cada
+        sesión: los trabajos HPC de una cuenta no deben verse en la siguiente."""
+        self.hpc = HpcRepository()
 
     def entrar_demo(self, usuario):
         """Entra sin servidor: todos los servicios con datos simulados/locales."""
         self.modo_demo = True
         self.sesion = None
         self.config["username"] = usuario or "demo"
+        self._nueva_sesion()
         self.reconfigurar()
 
     def logout(self):
@@ -102,8 +111,8 @@ class ApiClient:
             ("Distributed Storage", "HTTP/REST", c.url_storage, modo(c.storage_simulado)),
             ("Streaming", "HTTP/REST", c.url_media, modo(c.streaming_simulado)),
             ("Shared File", "HTTP/REST", c.url_storage, modo(not c.shared_file_disponible)),
-            ("File Sync", "gRPC", c.direccion_sync, "pendiente"),
-            ("HPC", "RMI", "srv-rmi", "pendiente"),
+            ("File Sync", "gRPC", c.direccion_sync, "simulado"),
+            ("HPC", "RMI", "srv-rmi", "simulado"),
         ]
 
     @staticmethod
@@ -123,20 +132,10 @@ class ApiClient:
         except OSError:
             return False
 
-    # --- Trabajos HPC (RMI -> SLURM/MPI) — pendiente ------------------------
-    def submit_job(self, job):
-        # TODO(backend): RMI enviarTrabajo() en srv-rmi -> sbatch en hpc-master
-        #                -> mpirun en los nodos de cómputo. Ver data/pendientes.py.
-        job["estado"] = "Encolado (demo)"
-        job["fecha"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-        self.config["jobs"].insert(0, job)
-        save_config(self.config)
-        return job
-
-    # --- File Sync (gRPC) — pendiente ---------------------------------------
+    # --- File Sync: carpeta local ------------------------------------------
     def sync_now(self, folder):
-        # TODO(backend): gRPC en node-sync (9090) con metadata
-        #                `authorization: Bearer <token>`. Ver data/pendientes.py.
+        """Cuenta los archivos de la carpeta local a sincronizar. El envío real
+        irá por gRPC a node-sync (ver data/filesync.py)."""
         files = []
         if folder and os.path.isdir(folder):
             for root, _dirs, names in os.walk(folder):
