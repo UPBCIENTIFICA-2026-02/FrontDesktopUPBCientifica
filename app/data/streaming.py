@@ -2,21 +2,27 @@
 """Streaming y Photo Album (HTTP/REST, node-media:8083). Equivale a
 StreamingApi.kt + StreamingRepository.kt del móvil.
 
-Streaming:
-  GET    /streaming/catalogo?pagina=N        -> lista de ContenidoDto
+Streaming (propio + compartido contigo; ordenPor = RECIENTES | MAS_VISTOS | ALFABETICO):
+  GET    /streaming/catalogo?pagina=N&ordenPor=...  -> lista de ContenidoDto
+  GET    /streaming/{id}/miniatura           (JPEG, la genera node-media con FFmpeg)
   GET    /streaming/buscar?criterioTexto=... -> lista de ContenidoDto
   GET    /streaming/{id}/sesion              -> {sesionId, manifestUrl}
   DELETE /streaming/{id}                     (borra el archivo en Storage y del catálogo)
 El video se pide por rangos a manifestUrl (lo hace el reproductor, con el token).
 
-Photo Album:
-  GET    /album/fotos?pagina=N               -> lista de FotoDto
+Photo Album (propio + compartido contigo; ordenPor = RECIENTES | ALFABETICO):
+  GET    /album/fotos?pagina=N&ordenPor=...  -> lista de FotoDto
   GET    /album/fotos/{id}/miniatura         (JPEG)
   GET    /album/fotos/{id}/contenido         (original)
   DELETE /album/fotos/{id}
-  POST   /album/indexar                      -> {indexados, revisados}
-Lo subido a Storage no aparece aquí hasta indexar.
+  POST   /album/indexar                      -> {indexados, revisados, compartidos}
+node-media reindexa solo al pedir la primera página (como mucho una vez por
+minuto); "Buscar nuevas" lo fuerza al momento.
 """
+
+# ordenPor del Contrato_Streaming -> texto para la interfaz
+ORDENES_VIDEO = {"RECIENTES": "Recientes", "MAS_VISTOS": "Más vistos", "ALFABETICO": "Título (A-Z)"}
+ORDENES_FOTO = {"RECIENTES": "Recientes", "ALFABETICO": "Título (A-Z)"}
 
 from dataclasses import dataclass
 
@@ -27,6 +33,10 @@ class ContenidoDto:
     titulo: str
     duracion_segundos: int
     fecha: str = None
+    tiene_miniatura: bool = False
+    visualizaciones: int = 0
+    propietario: str = None
+    compartido: bool = False     # te lo compartió `propietario`
 
     @property
     def duracion_texto(self):
@@ -36,7 +46,8 @@ class ContenidoDto:
     @classmethod
     def from_json(cls, d):
         return cls(str(d.get("id", "")), d.get("titulo", "(sin título)"),
-                   int(d.get("duracionSegundos") or 0), d.get("fecha"))
+                   int(d.get("duracionSegundos") or 0), d.get("fecha"), bool(d.get("tieneMiniatura")),
+                   int(d.get("visualizaciones") or 0), d.get("propietario"), bool(d.get("compartido")))
 
 
 @dataclass
@@ -48,12 +59,14 @@ class FotoDto:
     alto: int
     tiene_miniatura: bool
     fecha: str = None
+    propietario: str = None
+    compartido: bool = False
 
     @classmethod
     def from_json(cls, d):
         return cls(str(d.get("id", "")), d.get("titulo", "(sin título)"), int(d.get("tamanoBytes") or 0),
                    int(d.get("ancho") or 0), int(d.get("alto") or 0), bool(d.get("tieneMiniatura")),
-                   d.get("fecha"))
+                   d.get("fecha"), d.get("propietario"), bool(d.get("compartido")))
 
 
 class StreamingRepository:
@@ -62,11 +75,15 @@ class StreamingRepository:
         self.simulado = usar_datos_simulados or rest is None
 
     # --- Streaming -----------------------------------------------------------
-    def catalogo(self, pagina=0):
+    def catalogo(self, pagina=0, orden="RECIENTES"):
         if self.simulado:
-            return self._simulados() if pagina == 0 else []
+            datos = self._simulados() if pagina == 0 else []
+            return sorted(datos, key=lambda c: c.titulo.lower()) if orden == "ALFABETICO" else datos
         return [ContenidoDto.from_json(d)
-                for d in (self.rest.get_json("/streaming/catalogo", {"pagina": pagina}) or [])]
+                for d in (self.rest.get_json("/streaming/catalogo", {"pagina": pagina, "ordenPor": orden}) or [])]
+
+    def miniatura_video(self, contenido_id):
+        return self.rest.get_bytes(f"/streaming/{contenido_id}/miniatura")
 
     def buscar(self, criterio):
         if self.simulado:
@@ -92,10 +109,11 @@ class StreamingRepository:
         self.rest.delete(f"/streaming/{contenido_id}")
 
     # --- Photo Album ---------------------------------------------------------
-    def fotos(self, pagina=0):
+    def fotos(self, pagina=0, orden="RECIENTES"):
         if self.simulado:
             return []
-        return [FotoDto.from_json(d) for d in (self.rest.get_json("/album/fotos", {"pagina": pagina}) or [])]
+        return [FotoDto.from_json(d)
+                for d in (self.rest.get_json("/album/fotos", {"pagina": pagina, "ordenPor": orden}) or [])]
 
     def miniatura(self, foto_id):
         return self.rest.get_bytes(f"/album/fotos/{foto_id}/miniatura")
@@ -109,11 +127,12 @@ class StreamingRepository:
         self.rest.delete(f"/album/fotos/{foto_id}")
 
     def indexar(self):
-        """Busca en Mis archivos fotos y videos nuevos. Devuelve (indexados, revisados)."""
+        """Busca ya mismo fotos y videos nuevos en Mis archivos y en lo compartido
+        contigo. Devuelve (indexados, revisados, compartidos)."""
         if self.simulado:
-            return 0, 0
+            return 0, 0, 0
         d = self.rest.post_json("/album/indexar") or {}
-        return int(d.get("indexados") or 0), int(d.get("revisados") or 0)
+        return int(d.get("indexados") or 0), int(d.get("revisados") or 0), int(d.get("compartidos") or 0)
 
     @staticmethod
     def _simulados():

@@ -3,7 +3,9 @@
 genera node-media; al pulsar, la foto original se abre en el visor de la app
 (views/visor.py), con zoom y opción de eliminarla.
 
-Lo que se sube a Mis archivos no aparece aquí hasta "Buscar nuevas" (indexar).
+Incluye las fotos que te compartieron (con "de <propietario>" debajo) y se
+puede ordenar; el orden lo aplica node-media (ordenPor). node-media busca lo
+nuevo solo al cargar (como mucho una vez por minuto); "Buscar nuevas" lo fuerza.
 """
 
 import io
@@ -11,9 +13,10 @@ import io
 import customtkinter as ctk
 from tkinter import messagebox
 
-from ..theme import (ON_SURFACE_VARIANT, SURFACE_CONTAINER, SURFACE_CONTAINER_HIGH, font)
+from ..theme import (ON_SURFACE_VARIANT, PRIMARY, SURFACE_CONTAINER, SURFACE_CONTAINER_HIGH, font, icon_font, glifo)
 from ..widgets import tonal_button, icon_button, chip, StatePanel, SearchBar, bind_click
 from ..utils import run_async, describir
+from ..data.streaming import ORDENES_FOTO
 from .visor import VisorImagen
 
 try:
@@ -34,6 +37,7 @@ class AlbumView(ctk.CTkFrame):
         self._miniaturas = {}                   # id -> CTkImage (caché de la sesión)
         self._cols = None
         self._pintando = False
+        self.orden = "RECIENTES"
 
         self.busqueda = SearchBar(self, "Buscar fotos", lambda _q: self._pintar())
         self.busqueda.pack(fill="x", pady=(0, 8))
@@ -44,8 +48,13 @@ class AlbumView(ctk.CTkFrame):
         else:
             chip(bar, f"node-media · {app.api.conf.url_media}", "ok").pack(side="left")
         icon_button(bar, "↻", self.cargar).pack(side="right")
-        self.btn_indexar = tonal_button(bar, "🔎  Buscar nuevas", self._indexar, width=160, height=36)
+        self.btn_indexar = tonal_button(bar, "Buscar nuevas", self._indexar, width=160, height=36)
         self.btn_indexar.pack(side="right", padx=8)
+        self.o_orden = ctk.CTkOptionMenu(bar, values=list(ORDENES_FOTO.values()), width=150,
+                                         command=self._cambiar_orden)
+        self.o_orden.set(ORDENES_FOTO[self.orden])
+        self.o_orden.pack(side="right", padx=(8, 0))
+        ctk.CTkLabel(bar, text="Ordenar por", text_color=ON_SURFACE_VARIANT).pack(side="right")
 
         self.panel = StatePanel(self)
         self.panel.pack(fill="both", expand=True)
@@ -71,19 +80,24 @@ class AlbumView(ctk.CTkFrame):
             self.datos = datos
             self._pintar()
 
-        run_async(self, lambda: self.repo.fotos(0), ok, lambda e: self.panel.error(describir(e), self.cargar))
+        orden = self.orden
+        run_async(self, lambda: self.repo.fotos(0, orden), ok, lambda e: self.panel.error(describir(e), self.cargar))
+
+    def _cambiar_orden(self, etiqueta):
+        self.orden = next(k for k, v in ORDENES_FOTO.items() if v == etiqueta)
+        self.cargar()
 
     def _indexar(self):
         self.btn_indexar.configure(state="disabled", text="Buscando…")
 
         def fin(res):
-            self.btn_indexar.configure(state="normal", text="🔎  Buscar nuevas")
-            if res[0] == 0:
-                messagebox.showinfo("Álbum", "No hay fotos ni videos nuevos en Mis archivos.", parent=self)
+            self.btn_indexar.configure(state="normal", text="Buscar nuevas")
+            if res[0] == 0 and res[2] == 0:
+                messagebox.showinfo("Álbum", "No hay fotos ni videos nuevos.", parent=self)
             self.cargar()
 
         def err(e):
-            self.btn_indexar.configure(state="normal", text="🔎  Buscar nuevas")
+            self.btn_indexar.configure(state="normal", text="Buscar nuevas")
             messagebox.showerror("No se pudo buscar contenido nuevo", describir(e), parent=self)
 
         run_async(self, self.repo.indexar, fin, err)
@@ -104,7 +118,7 @@ class AlbumView(ctk.CTkFrame):
         q = self.busqueda.value.strip().lower()
         visibles = [f for f in self.datos if q in f.titulo.lower()]
         if not self.datos:
-            self.panel.empty("Sube fotos a Mis archivos y pulsa \"Buscar nuevas\".", "🖼",
+            self.panel.empty("Las fotos de Mis archivos y las que te compartan aparecen aquí.", "🖼",
                              "No hay fotos", ("Buscar nuevas", self._indexar))
             return
         if not visibles:
@@ -119,11 +133,14 @@ class AlbumView(ctk.CTkFrame):
             celda = ctk.CTkFrame(grid, fg_color=SURFACE_CONTAINER, corner_radius=12, width=LADO, height=LADO + 34)
             celda.grid(row=i // cols, column=i % cols, padx=6, pady=6)
             celda.pack_propagate(False)
-            imagen = ctk.CTkLabel(celda, text="🖼", width=LADO, height=LADO, font=ctk.CTkFont(size=30),
+            imagen = ctk.CTkLabel(celda, text=glifo("🖼"), width=LADO, height=LADO, font=icon_font(30),
                                   text_color=ON_SURFACE_VARIANT)
             imagen.pack()
-            ctk.CTkLabel(celda, text=_cortar(foto.titulo, 20), font=font("body_small"),
-                         text_color=ON_SURFACE_VARIANT).pack()
+            texto = _cortar(foto.titulo, 20)
+            if foto.compartido:
+                texto = f"{_cortar(foto.titulo, 11)} · de {_cortar(foto.propietario or '', 8)}"
+            ctk.CTkLabel(celda, text=texto, font=font("body_small"),
+                         text_color=PRIMARY if foto.compartido else ON_SURFACE_VARIANT).pack()
             bind_click(celda, lambda f=foto: self._ver(f), hover=SURFACE_CONTAINER_HIGH)
             self._cargar_miniatura(foto, imagen)
 
@@ -156,8 +173,9 @@ class AlbumView(ctk.CTkFrame):
         run_async(etiqueta, decodificar, poner, lambda _e: None)
 
     def _ver(self, foto):
+        # Solo el dueño puede borrarla: en lo compartido no se ofrece.
         VisorImagen(self, foto.titulo, lambda: self.repo.contenido_foto(foto.id),
-                    on_eliminar=None if self.repo.simulado else (lambda: self._eliminar(foto)))
+                    on_eliminar=None if self.repo.simulado or foto.compartido else (lambda: self._eliminar(foto)))
 
     def _eliminar(self, foto):
         def hecho(_r):

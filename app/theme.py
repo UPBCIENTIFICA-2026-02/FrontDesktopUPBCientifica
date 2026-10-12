@@ -132,9 +132,95 @@ def font(role="body"):
     return ctk.CTkFont(size=size, weight=weight)
 
 
+# --- Iconos ------------------------------------------------------------------
+# Los emoji (📁 🖼 👥…) con "Segoe UI Symbol" salen monocromos y deformes. En
+# Windows 10/11 hay una fuente de iconos de verdad: Segoe Fluent Icons (11) o
+# Segoe MDL2 Assets (10). El código sigue escribiendo el emoji (se lee mejor) y
+# `glifo()` lo cambia por el icono equivalente. En Linux, o si no hay ninguna
+# de las dos fuentes, se deja el emoji como estaba.
+_FUENTES_ICONOS = [("Segoe Fluent Icons", "SegoeIcons.ttf"), ("Segoe MDL2 Assets", "segmdl2.ttf")]
+_ICONOS = {
+    "⌂": 0xE80F, "📁": 0xE8B7, "📂": 0xE838, "👥": 0xE716, "▶": 0xE768, "▣": 0xE950,
+    "↻": 0xE895, "🖼": 0xEB9F, "⚙": 0xE713, "ⓘ": 0xE946, "☁": 0xE753, "👤": 0xE77B,
+    "🔒": 0xE72E, "⚠": 0xE7BA, "👁": 0xE890, "🙈": 0xED1A, "🔍": 0xE721, "🔎": 0xE721,
+    "✕": 0xE711, "🗑": 0xE74D, "📕": 0xEA90, "▦": 0xE80A, "📄": 0xE8A5, "📊": 0xE786,
+    "🎬": 0xE714, "♪": 0xE8D6, "📦": 0xF012, "</>": 0xE943, "{ }": 0xE9D2, "📃": 0xE7C3,
+    "⌛": 0xE823, "✓": 0xE73E, "⊘": 0xE733, "↪": 0xF3B1, "⋮": 0xE712, "☰": 0xE8FD,
+    "＋": 0xE710, "+": 0xE710, "−": 0xE738, "↑": 0xE898, "⬇": 0xE896,
+    "☀": 0xE706, "☾": 0xE708,
+}
+_familia_iconos = None      # se detecta en el primer uso (hace falta la ventana Tk)
+
+
+def _familia():
+    global _familia_iconos
+    if _familia_iconos is None:
+        import tkinter.font as tkfont
+        try:
+            disponibles = set(tkfont.families())
+        except Exception:       # todavía no hay ventana: se reintenta luego
+            return None
+        _familia_iconos = next((f for f, _ in _FUENTES_ICONOS if f in disponibles), "")
+    return _familia_iconos or None
+
+
+def glifo(texto):
+    """Emoji -> icono de la fuente de iconos de Windows (si la hay)."""
+    if texto in _ICONOS and _familia():
+        return chr(_ICONOS[texto])
+    return texto
+
+
 def icon_font(size=16):
-    """Fuente para glifos/iconos: Segoe UI Symbol en Windows dibuja bien ☁ ↻ 📁…"""
-    return ctk.CTkFont(family="Segoe UI Symbol", size=size)
+    """Fuente de los iconos: Segoe Fluent Icons / MDL2 si existen; si no, Segoe UI Symbol."""
+    return ctk.CTkFont(family=_familia() or "Segoe UI Symbol", size=size)
+
+
+def imagen_avatar(inicial, color, tamano):
+    """Círculo con la inicial, dibujado con PIL a 4x y reducido: bordes suaves y
+    la letra centrada de verdad a cualquier tamaño (con un CTkFrame redondo y
+    una etiqueta encima, a 18 px la letra salía diminuta y descentrada)."""
+    from PIL import Image, ImageDraw, ImageFont
+    f = 4
+    lado = tamano * f
+    fuente = None
+    for archivo in ("C:/Windows/Fonts/segoeuib.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"):
+        try:
+            fuente = ImageFont.truetype(archivo, int(lado * 0.52))
+            break
+        except OSError:
+            continue
+    if fuente is None:
+        return None
+    img = Image.new("RGBA", (lado, lado), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.ellipse((0, 0, lado - 1, lado - 1), fill=color)
+    d.text((lado / 2, lado / 2), inicial, font=fuente, fill="#FFFFFF", anchor="mm")
+    img = img.resize((tamano * 2, tamano * 2), Image.LANCZOS)   # 2x: nítido en pantallas con escala
+    return ctk.CTkImage(light_image=img, dark_image=img, size=(tamano, tamano))
+
+
+def imagen_icono(texto, tamano=20, color=("#44474F", "#C4C6D0")):
+    """El icono como imagen (CTkImage), para ponerlo junto a texto en un botón:
+    un botón tiene una sola fuente, y el texto no puede ir en la de iconos.
+    Devuelve None si no hay fuente de iconos (el llamador deja el emoji)."""
+    familia = _familia()
+    if not familia or texto not in _ICONOS:
+        return None
+    from PIL import Image, ImageDraw, ImageFont
+    archivo = dict(_FUENTES_ICONOS)[familia]
+    try:
+        fuente = ImageFont.truetype(str(Path("C:/Windows/Fonts") / archivo), int(tamano * 2))
+    except OSError:
+        return None
+
+    def dibujar(c):
+        img = Image.new("RGBA", (tamano * 2, tamano * 2), (0, 0, 0, 0))
+        ImageDraw.Draw(img).text((tamano, tamano), chr(_ICONOS[texto]), font=fuente, fill=c, anchor="mm")
+        return img
+
+    claro, oscuro = color if isinstance(color, tuple) else (color, color)
+    return ctk.CTkImage(light_image=dibujar(claro), dark_image=dibujar(oscuro), size=(tamano, tamano))
 
 
 def mono(size=12):

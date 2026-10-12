@@ -13,7 +13,7 @@ from customtkinter.windows.widgets.appearance_mode import AppearanceModeTracker
 from ..theme import (
     PRIMARY, ON_PRIMARY, PRIMARY_CONTAINER, SURFACE, SURFACE_CONTAINER_LOW, ON_SURFACE,
     ON_SURFACE_VARIANT, OUTLINE, ERROR_CONTAINER, ON_ERROR_CONTAINER, RADIUS_L, RADIUS_S,
-    font, resolve, _mix,
+    font, icon_font, glifo, resolve, _mix,
 )
 from ..widgets import primary_button, text_button, icon_button
 from ..config import save_config
@@ -93,8 +93,8 @@ class LoginView(ctk.CTkFrame):
                            corner_radius=RADIUS_S, height=54)
         box.pack(fill="x", pady=(0, 12))
         box.pack_propagate(False)
-        ctk.CTkLabel(box, text=icono, text_color=ON_SURFACE_VARIANT, width=26,
-                     font=ctk.CTkFont(size=16)).pack(side="left", padx=(14, 4))
+        ctk.CTkLabel(box, text=glifo(icono), text_color=ON_SURFACE_VARIANT, width=26,
+                     font=icon_font(16)).pack(side="left", padx=(14, 4))
         entry = ctk.CTkEntry(box, placeholder_text=placeholder, border_width=0, fg_color=SURFACE,
                              font=font("body_large"), height=44, show="•" if password else "")
         entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
@@ -108,7 +108,7 @@ class LoginView(ctk.CTkFrame):
     def _toggle_ver(self):
         self.ver = not self.ver
         self.e_pass.configure(show="" if self.ver else "•")
-        self.btn_ver.configure(text="🙈" if self.ver else "👁")
+        self.btn_ver.configure(text=glifo("🙈" if self.ver else "👁"))
 
     # --- Fondo en degradado, logo y título dibujados en el lienzo ------------
     def _on_mode(self, _mode):

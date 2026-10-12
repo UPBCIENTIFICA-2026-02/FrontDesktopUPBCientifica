@@ -15,7 +15,7 @@ from ..theme import (
     PRIMARY, PRIMARY_CONTAINER, ON_PRIMARY_CONTAINER, TERTIARY, EXITO, ERROR, SURFACE,
     SURFACE_CONTAINER_LOW, SURFACE_CONTAINER_HIGH, SURFACE_CONTAINER_HIGHEST,
     ON_SURFACE_VARIANT, INVERSE_SURFACE, INVERSE_ON_SURFACE, RADIUS_L, RADIUS_M, RADIUS_S,
-    font, icon_font, mono, tint,
+    font, icon_font, glifo, mono, tint,
 )
 
 # Botón deshabilitado de Material 3 (igual que en el login).
@@ -347,7 +347,7 @@ class TarjetaTrabajo(ctk.CTkFrame):
         self.sub.configure(text=f"#{t.id_corto} · {formatear_hace(t.enviado_en)}")
         if self._estado_pintado != t.estado:
             self._estado_pintado = t.estado
-            self.icono.configure(text=icono, text_color=color, fg_color=tint(color, 0.14, SURFACE))
+            self.icono.configure(text=glifo(icono), text_color=color, fg_color=tint(color, 0.14, SURFACE))
             for w in self.estado_holder.winfo_children():
                 w.destroy()
             p = pill(self.estado_holder, etiqueta, color)

@@ -9,7 +9,7 @@ from ..widgets import section_title, card, primary_button
 from ..config import CONFIG_FILE, save_config
 from .conexion_form import ConexionForm
 
-APARIENCIAS = {"Claro": "light", "Oscuro": "dark", "Sistema": "system"}
+APARIENCIAS = {"Según el sistema": "system", "Claro": "light", "Oscuro": "dark"}   # mismos nombres que el menú de la cuenta
 
 
 class SettingsView(ctk.CTkScrollableFrame):

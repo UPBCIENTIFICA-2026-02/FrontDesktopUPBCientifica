@@ -4,3 +4,6 @@ Pillow>=9.0
 av>=12
 # Audio del reproductor; sin él los videos se ven en silencio
 sounddevice>=0.4
+# File Sync: cliente gRPC de node-sync (stubs en app/network/filesync_pb)
+grpcio>=1.66
+protobuf>=5.27

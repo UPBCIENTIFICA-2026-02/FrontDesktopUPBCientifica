@@ -13,10 +13,9 @@ REST o datos de prueba.
   Shared File          REST        node-shared-file:8085 (VM node-repository)
   Streaming + Album    REST        node-media:8083
   HPC                  REST        job-api:8082, la fachada REST del gestor RMI
-  File Sync            gRPC        Simulado (conectividad real; falta el stub)
+  File Sync            gRPC        node-sync:9090 (guarda a través de Storage)
 """
 
-import os
 import socket
 from urllib.parse import urlparse
 
@@ -38,7 +37,7 @@ class ApiClient:
         self.tokens = TokenManager()
         self.sesion = None          # SessionResult tras un login real
         self.modo_demo = False      # True = sin servidor, todo simulado
-        self.filesync = FileSyncRepository()
+        self.filesync = None
         self.reconfigurar()
 
     # --- Composición de dependencias ---------------------------------------
@@ -64,6 +63,12 @@ class ApiClient:
                 self.hpc = SimuladorHpc()
         else:
             self.hpc = HpcRepository(RestClient(c.url_trabajos, self.tokens, "HPC (job-api)"))
+        # File Sync guarda estado (sesión, sincronización en curso): se conserva
+        # y solo se le actualiza la dirección.
+        if self.filesync is None:
+            self.filesync = FileSyncRepository(self.tokens, c.direccion_sync)
+        else:
+            self.filesync.direccion = c.direccion_sync
 
     # --- Autenticación (SOAP) ----------------------------------------------
     @property
@@ -78,6 +83,7 @@ class ApiClient:
         self.reconfigurar()
         self.sesion = self.auth.login(usuario, contrasena, origen_cliente="desktop")
         self._nueva_sesion()
+        self.filesync.iniciar_sesion(self.sesion.usuario, self.conf.direccion_sync)
         return self.sesion
 
     def _nueva_sesion(self):
@@ -91,6 +97,7 @@ class ApiClient:
         self.sesion = None
         self.config["username"] = usuario or "demo"
         self.hpc = SimuladorHpc()
+        self.filesync.cerrar_sesion()    # sin servidor no hay nada que sincronizar
         self.reconfigurar()
 
     def logout(self):
@@ -100,6 +107,7 @@ class ApiClient:
             pass  # la sesión local se cierra igual (el token ya se borró)
         self.sesion = None
         self.modo_demo = False
+        self.filesync.cerrar_sesion()
         self.tokens.clear()
 
     # --- Estado de los servicios -------------------------------------------
@@ -117,7 +125,7 @@ class ApiClient:
             ("Shared File", "HTTP/REST", c.url_compartidos, modo(not c.shared_file_disponible)),
             ("Streaming y fotos", "HTTP/REST", c.url_media, modo(c.streaming_simulado)),
             ("HPC (job-api)", "HTTP/REST → RMI", c.url_trabajos, modo(c.hpc_simulado)),
-            ("File Sync", "gRPC", c.direccion_sync, "simulado"),
+            ("File Sync", "gRPC", c.direccion_sync, "demo" if demo else "real"),
         ]
 
     @staticmethod
@@ -137,13 +145,3 @@ class ApiClient:
         except OSError:
             return False
 
-    # --- File Sync: carpeta local ------------------------------------------
-    def sync_now(self, folder):
-        """Cuenta los archivos de la carpeta local a sincronizar. El envío real
-        irá por gRPC a node-sync (ver data/filesync.py)."""
-        files = []
-        if folder and os.path.isdir(folder):
-            for root, _dirs, names in os.walk(folder):
-                for n in names:
-                    files.append(os.path.join(root, n))
-        return {"detectados": len(files), "carpeta": folder}

@@ -26,7 +26,7 @@ Kotlin + Jetpack Compose):
 | Streaming           | HTTP/REST | **Conectado** a node-media (8083): catálogo, reproducción **dentro de la app**, eliminar, buscar contenido nuevo |
 | Photo Album         | HTTP/REST | **Conectado** a node-media (8083): miniaturas, visor con zoom, eliminar |
 | HPC                 | REST → RMI | **Conectado** a job-api (8082), la fachada REST del gestor RMI: enviar (nombre, comando, prioridad), listar, ver salida y cancelar |
-| File Sync           | gRPC      | Simulado: indicador en la barra superior (conectividad real, ciclo simulado hasta generar el stub del `.proto`) |
+| File Sync           | gRPC      | Real: node-sync 9090 (guarda a través de Storage). Carpeta local ↔ carpeta del Home; manual, al conectarse a la red del servidor, cada hora o diaria |
 
 **Imágenes y videos se ven dentro de la app** (`app/views/visor.py`): el
 reproductor (PyAV + sounddevice) pide el video por rangos con el token en la
@@ -65,7 +65,7 @@ upbcientifica-desktop/
     │   ├── sharedfile.py         #   /shared-file/...
     │   ├── streaming.py          #   /streaming/...
     │   ├── hpc.py                #   EnviarTrabajo / ConsultarEstadoTrabajo / ObtenerEstadoCluster (simulado)
-    │   └── filesync.py           #   Ciclo de sincronización (simulado) + conectividad real
+    │   └── filesync.py           #   File Sync real (gRPC): motor, programación y manifiesto por usuario
     └── views/                    # Una vista por archivo
         ├── login.py              # Usuario + contraseña (igual que LoginScreen.kt)
         ├── dashboard.py          # Saludo, estado de sync, tarjetas de servicios, conexión
@@ -74,7 +74,7 @@ upbcientifica-desktop/
         ├── compartir_dialog.py   # Compartir con usuario/grupo y permisos Unix
         ├── streaming.py          # Catálogo en cuadrícula + videos locales
         ├── hpc.py                # Clúster, trabajos y "Nuevo trabajo"
-        ├── sync.py               # Carpeta local a sincronizar
+        ├── sync.py               # Carpeta, programación y último resultado de File Sync
         ├── album.py              # Álbum de fotos
         ├── settings.py           # Conexión + apariencia
         ├── conexion_form.py      # Formulario de conexión (Configuración y login)

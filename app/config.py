@@ -35,8 +35,6 @@ DEFAULT_CONFIG = {
     "appearance": "light",
     "album_folder": "",
     "video_folder": "",
-    "sync_folder": "",
-    "sync_schedule": "Manual",
     "vista_archivos": "lista",           # "lista" | "cuadricula"
     "version_config": 2,
 }
@@ -59,7 +57,9 @@ def load_config():
             cfg.update(guardada)
         except Exception:
             guardada = {}
-    for viejo in ("server_url", "jobs", "album_folder", "video_folder"):   # campos ya sin uso
+    # Campos ya sin uso. sync_folder/sync_schedule: File Sync guarda ahora su
+    # configuración por usuario en filesync/<uid>.json (data/filesync.py).
+    for viejo in ("server_url", "jobs", "album_folder", "video_folder", "sync_folder", "sync_schedule"):
         cfg.pop(viejo, None)
     # La versión se mira en lo GUARDADO: los valores por defecto ya traen la 2,
     # y un archivo antiguo (sin el campo) parecería al día.

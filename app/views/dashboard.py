@@ -11,10 +11,10 @@ from ..theme import (
     PRIMARY, PRIMARY_CONTAINER, ON_PRIMARY_CONTAINER, SECONDARY_CONTAINER, ON_SECONDARY_CONTAINER,
     TERTIARY_CONTAINER, ON_TERTIARY_CONTAINER, INVERSE_SURFACE, INVERSE_ON_SURFACE,
     SURFACE_CONTAINER_LOW, ON_SURFACE, ON_SURFACE_VARIANT, EXITO, ERROR, RADIUS_M, RADIUS_L,
-    font, icon_font, tint,
+    font, icon_font, glifo, tint,
 )
 from ..widgets import card, chip, circle, ghost_button, section_header, bind_click, formatear_hace
-from ..data.filesync import AlDia, Sincronizando
+from ..data.filesync import AlDia, Sincronizando, SinConfigurar, ErrorSync
 from ..utils import run_async
 from ..config import HOME_DIR
 
@@ -61,7 +61,7 @@ class DashboardView(ctk.CTkScrollableFrame):
         self.franja.pack(fill="x", padx=4)
         fila = ctk.CTkFrame(self.franja, fg_color="transparent")
         fila.pack(fill="x", padx=16, pady=14)
-        self.f_icono = ctk.CTkLabel(fila, text="☁", font=icon_font(22), width=30)
+        self.f_icono = ctk.CTkLabel(fila, text=glifo("☁"), font=icon_font(22), width=30)
         self.f_icono.pack(side="left")
         txt = ctk.CTkFrame(fila, fg_color="transparent")
         txt.pack(side="left", padx=14)
@@ -146,15 +146,22 @@ class DashboardView(ctk.CTkScrollableFrame):
     def _pintar_sync(self, estado):
         if isinstance(estado, AlDia):
             icono, color, titulo = "☁", EXITO, "Todo sincronizado"
-            detalle = f"Última sincronización {formatear_hace(estado.ultima_sincronizacion)}"
+            detalle = (f"Última sincronización {formatear_hace(estado.ultima_sincronizacion)}"
+                       if estado.ultima_sincronizacion else "Aún no se ha sincronizado")
         elif isinstance(estado, Sincronizando):
             icono, color, titulo = "↻", PRIMARY, "Sincronizando…"
-            detalle = (f"Faltan {estado.pendientes} cambios por subir" if estado.pendientes
-                       else "Buscando cambios")
+            detalle = (f"Faltan {estado.pendientes} cambios" if estado.pendientes
+                       else (estado.detalle or "Buscando cambios"))
+        elif isinstance(estado, SinConfigurar):
+            icono, color, titulo = "☁", ON_SURFACE_VARIANT, "Respalda una carpeta del PC"
+            detalle = "Elígela en Sincronización; se mantiene al día con tu Home"
+        elif isinstance(estado, ErrorSync):
+            icono, color, titulo = "⚠", ERROR, "No se pudo sincronizar"
+            detalle = estado.mensaje
         else:
-            icono, color, titulo = "☁", ERROR, "Sin conexión"
-            detalle = "Los cambios se subirán cuando vuelva la red"
-        self.f_icono.configure(text=icono, text_color=color)
+            icono, color, titulo = "⊘", ON_SURFACE_VARIANT, "Esperando la red del servidor"
+            detalle = "Se sincronizará al volver a alcanzar node-sync"
+        self.f_icono.configure(text=glifo(icono), text_color=color)
         self.f_titulo.configure(text=titulo)
         self.f_detalle.configure(text=detalle)
         if isinstance(estado, Sincronizando):

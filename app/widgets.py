@@ -18,7 +18,7 @@ from .theme import (
     SURFACE, SURFACE_CONTAINER_LOW, SURFACE_CONTAINER_HIGH, SURFACE_CONTAINER_HIGHEST,
     ON_SURFACE, ON_SURFACE_VARIANT, OUTLINE, OUTLINE_VARIANT, ERROR_CONTAINER,
     ON_ERROR_CONTAINER, SUCCESS_CONTAINER, EXITO, WARNING, WARNING_CONTAINER,
-    RADIUS_S, RADIUS_M, RADIUS_L, font, icon_font, tint,
+    RADIUS_S, RADIUS_M, RADIUS_L, font, icon_font, glifo, imagen_avatar, tint,
 )
 
 
@@ -114,8 +114,8 @@ def icono_tipo(master, tipo, tamano=40, over=SURFACE):
                      fg_color=tint(tipo.color, 0.14, over))
     f.pack_propagate(False)
     f.grid_propagate(False)
-    ctk.CTkLabel(f, text=tipo.icono, text_color=tipo.color, fg_color="transparent",
-                 font=icon_font(max(11, int(tamano * 0.42)))).place(relx=0.5, rely=0.5, anchor="center")
+    ctk.CTkLabel(f, text=glifo(tipo.icono), text_color=tipo.color, fg_color="transparent",
+                 font=icon_font(max(11, int(tamano * 0.46)))).place(relx=0.5, rely=0.5, anchor="center")
     return f
 
 
@@ -124,9 +124,10 @@ def circle(master, texto, tamano, fondo, color, size=None, bold=False):
     f = ctk.CTkFrame(master, width=tamano, height=tamano, corner_radius=tamano // 2, fg_color=fondo)
     f.pack_propagate(False)
     f.grid_propagate(False)
-    fuente = (ctk.CTkFont(size=size or int(tamano * 0.42), weight="bold") if bold
+    fuente = (ctk.CTkFont(size=size or max(9, int(tamano * 0.5)), weight="bold") if bold
               else icon_font(size or int(tamano * 0.45)))
-    f.label = ctk.CTkLabel(f, text=texto, text_color=color, fg_color="transparent", font=fuente)
+    f.label = ctk.CTkLabel(f, text=texto if bold else glifo(texto), text_color=color,
+                           fg_color="transparent", font=fuente)
     f.label.place(relx=0.5, rely=0.5, anchor="center")
     return f
 
@@ -142,7 +143,15 @@ def avatar(master, texto, tamano=36):
     """Círculo con la inicial. El color depende del texto (estable entre ejecuciones)."""
     inicial = (texto or "?").strip()[:1].upper() or "?"
     color = _COLORES_AVATAR[zlib.crc32((texto or "").lower().encode()) % len(_COLORES_AVATAR)]
-    return circle(master, inicial, tamano, color, "#FFFFFF", bold=True)
+    imagen = imagen_avatar(inicial, color, tamano)
+    if imagen is None:          # sin fuente para dibujarlo: el círculo de antes
+        return circle(master, inicial, tamano, color, "#FFFFFF", bold=True)
+    f = ctk.CTkFrame(master, width=tamano, height=tamano, fg_color="transparent", corner_radius=0)
+    f.pack_propagate(False)
+    f.grid_propagate(False)
+    f.label = ctk.CTkLabel(f, image=imagen, text="", width=tamano, height=tamano, fg_color="transparent")
+    f.label.place(relx=0.5, rely=0.5, anchor="center")
+    return f
 
 
 # =============================================================================
@@ -202,7 +211,7 @@ def text_button(master, text, command, width=100, height=36, color=PRIMARY):
 
 def icon_button(master, glyph, command, size=40, color=ON_SURFACE_VARIANT, tooltip=None):
     """IconButton: glifo dentro de un círculo que solo se ve al pasar el ratón."""
-    return ctk.CTkButton(master, text=glyph, command=command, width=size, height=size,
+    return ctk.CTkButton(master, text=glifo(glyph), command=command, width=size, height=size,
                          corner_radius=size // 2, fg_color="transparent",
                          hover_color=SURFACE_CONTAINER_HIGH, text_color=color,
                          font=icon_font(int(size * 0.42)))
@@ -308,8 +317,21 @@ def bind_click(widget, callback, hover=None):
         stack.extend(w.winfo_children())
     normal = widget.cget("fg_color") if hover else None
 
+    # Un clic llega VARIAS veces: los widgets de CustomTkinter reenvían su
+    # bind() a su lienzo y su etiqueta internos, que también están en la lista
+    # de arriba, así que acaban con el mismo manejador dos veces (y una imagen
+    # se abría dos veces). Todas esas llamadas traen el mismo e.time: solo
+    # cuenta la primera.
+    ultimo = {"t": None}
+
+    def al_clic(e):
+        if e.time == ultimo["t"]:
+            return
+        ultimo["t"] = e.time
+        callback()
+
     for w in widgets:
-        w.bind("<Button-1>", lambda _e: callback(), add="+")
+        w.bind("<Button-1>", al_clic, add="+")
         try:
             w.configure(cursor="hand2")
         except Exception:
@@ -327,7 +349,7 @@ class SearchBar(ctk.CTkFrame):
         super().__init__(master, fg_color=SURFACE_CONTAINER_HIGH, corner_radius=height // 2, height=height)
         self.on_change = on_change
         self.pack_propagate(False)
-        ctk.CTkLabel(self, text="🔍", text_color=ON_SURFACE_VARIANT, width=24,
+        ctk.CTkLabel(self, text=glifo("🔍"), text_color=ON_SURFACE_VARIANT, width=24,
                      font=icon_font(15)).pack(side="left", padx=(18, 6))
         # Sin textvariable: con ella CustomTkinter no muestra el texto guía.
         self.entry = ctk.CTkEntry(self, placeholder_text=placeholder,
@@ -460,7 +482,7 @@ def list_item(master, icon, headline, supporting=None, tipo=None, on_click=None)
     if tipo is not None:
         icono_tipo(row, tipo).pack(side="left", padx=(12, 4), pady=10)
     else:
-        ctk.CTkLabel(row, text=icon, width=40, font=icon_font(20)).pack(side="left", padx=(12, 4), pady=10)
+        ctk.CTkLabel(row, text=glifo(icon), width=40, font=icon_font(20)).pack(side="left", padx=(12, 4), pady=10)
     texts = ctk.CTkFrame(row, fg_color="transparent")
     texts.pack(side="left", fill="x", expand=True, padx=(10, 0), pady=8)
     ctk.CTkLabel(texts, text=headline, text_color=ON_SURFACE, font=font("body_large"),
@@ -549,7 +571,7 @@ class ConfirmDialog(Dialog):
 
     def __init__(self, master, icono, titulo, texto, confirmar, on_confirm):
         super().__init__(master, titulo, 420, 250)
-        ctk.CTkLabel(self, text=icono, font=icon_font(26), text_color=ON_SURFACE_VARIANT).pack(pady=(24, 6))
+        ctk.CTkLabel(self, text=glifo(icono), font=icon_font(26), text_color=ON_SURFACE_VARIANT).pack(pady=(24, 6))
         ctk.CTkLabel(self, text=titulo, font=font("headline_small")).pack()
         ctk.CTkLabel(self, text=texto, font=font("body"), text_color=ON_SURFACE_VARIANT,
                      wraplength=360).pack(pady=(10, 0))

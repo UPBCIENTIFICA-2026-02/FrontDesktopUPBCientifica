@@ -19,6 +19,9 @@ from ..utils import run_async, describir, open_with_system
 from ..config import DOWNLOAD_DIR, IMG_EXT, VID_EXT
 from ..data.sharedfile import NIVELES, texto_nivel
 from .visor import VisorImagen, Reproductor
+from .compartir_dialog import CompartirDialog
+
+COMPARTIR = "LECTURA_ESCRITURA_COMPARTIR"     # el nivel que deja volver a compartir
 
 SECCIONES = ("Conmigo", "Que comparto")
 
@@ -31,6 +34,10 @@ class SharedFilesView(ctk.CTkFrame):
         self.storage = app.api.storage
         self.seccion = SECCIONES[0]
         self.ruta = []              # carpetas compartidas abiertas: [(id, nombre)]
+        # Nivel con el que se compartió la carpeta por la que se entró: lo que
+        # hay dentro lo hereda (Storage aplica la herencia), así que decide si
+        # se puede volver a compartir un elemento de dentro.
+        self._nivel_carpeta = None
         self.datos = None
         self._peticion = 0
 
@@ -82,6 +89,7 @@ class SharedFilesView(ctk.CTkFrame):
     def _cambiar_seccion(self, valor):
         self.seccion = valor
         self.ruta = []
+        self._nivel_carpeta = None
         self.cargar()
 
     # --- Pintar --------------------------------------------------------------
@@ -107,6 +115,8 @@ class SharedFilesView(ctk.CTkFrame):
 
     def _ir_a(self, i):
         self.ruta = self.ruta[:i]          # 0 = la lista
+        if not self.ruta:
+            self._nivel_carpeta = None
         self.cargar()
 
     def _pintar(self):
@@ -156,12 +166,15 @@ class SharedFilesView(ctk.CTkFrame):
         self.panel.clear()
         for a in visibles:
             sub = "Carpeta" if a.es_directorio else formatear_tamano(a.tamano_bytes)
-            list_item(self.panel, None, a.nombre, sub, tipo=tipo_archivo(a.nombre, a.es_directorio),
-                      on_click=lambda a=a: self._tocar_elemento(a.id, a.nombre, a.es_directorio))
+            _row, tr = list_item(self.panel, None, a.nombre, sub, tipo=tipo_archivo(a.nombre, a.es_directorio),
+                                 on_click=lambda a=a: self._tocar_elemento(a.id, a.nombre, a.es_directorio))
+            icon_button(tr, "⋮", lambda a=a: self._detalles_elemento(a), size=34).pack()
 
     # --- Acciones ------------------------------------------------------------
     def _tocar_relacion(self, r):
         if self.seccion == "Conmigo":
+            if r.es_directorio:
+                self._nivel_carpeta = r.nivel_permiso
             self._tocar_elemento(r.elemento_id, r.nombre, r.es_directorio)
         else:
             self._gestionar(r)
@@ -187,10 +200,37 @@ class SharedFilesView(ctk.CTkFrame):
             filas.append(("Caduca", r.fecha_expiracion[:10]))
         if not r.es_directorio:
             filas.append(("Tamaño", formatear_tamano(r.tamano_bytes)))
-        acciones = [("Abrir", lambda: self._tocar_elemento(r.elemento_id, r.nombre, r.es_directorio), "primary")]
+        acciones = [("Abrir", lambda: self._tocar_relacion(r), "primary")]
         if not r.es_directorio:
             acciones.insert(0, ("Descargar", lambda: self._descargar(r.elemento_id, r.nombre), "tonal"))
+        if r.nivel_permiso == COMPARTIR:
+            acciones.insert(0, ("Compartir", lambda: self._compartir(r.elemento_id, r.nombre, r.es_directorio),
+                                "outlined"))
         DetailsDialog(self, r.nombre, tipo_archivo(r.nombre, r.es_directorio), filas, acciones)
+
+    def _detalles_elemento(self, a):
+        """Algo DENTRO de una carpeta compartida contigo."""
+        filas = [("Ubicación", " / ".join(n for _, n in self.ruta)),
+                 ("Tu acceso", texto_nivel(self._nivel_carpeta) if self._nivel_carpeta else "—")]
+        if not a.es_directorio:
+            filas.insert(0, ("Tamaño", formatear_tamano(a.tamano_bytes)))
+        acciones = [("Abrir", lambda: self._tocar_elemento(a.id, a.nombre, a.es_directorio), "primary")]
+        if not a.es_directorio:
+            acciones.insert(0, ("Descargar", lambda: self._descargar(a.id, a.nombre), "tonal"))
+        if self._nivel_carpeta == COMPARTIR:
+            acciones.insert(0, ("Compartir", lambda: self._compartir(a.id, a.nombre, a.es_directorio), "outlined"))
+        DetailsDialog(self, a.nombre, tipo_archivo(a.nombre, a.es_directorio), filas, acciones)
+
+    def _compartir(self, elemento_id, nombre, es_directorio):
+        """Volver a compartir algo que te compartieron con el nivel "compartir".
+        Storage vuelve a comprobar ese nivel; si no lo tienes, avisa (SHR-002)."""
+        CompartirDialog(self, self.app.api, elemento_id=elemento_id, nombre=nombre, es_directorio=es_directorio,
+                        on_done=self._ver_que_comparto)
+
+    def _ver_que_comparto(self):
+        """Tras compartir, la nueva relación se ve en "Que comparto"."""
+        self.selector.set("Que comparto")
+        self._cambiar_seccion("Que comparto")
 
     def _gestionar(self, r):
         GestionarDialog(self, r, self._cambiar_nivel, self._revocar)
