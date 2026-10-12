@@ -10,12 +10,12 @@ from ..widgets import section_title, card, chip
 
 class AboutView(ctk.CTkScrollableFrame):
     SERVICIOS = [
-        ("Authentication", "SOAP", "Conectado (mock o node-soap)", "ok"),
+        ("Authentication", "SOAP", "Conectado a node-soap (8081)", "ok"),
         ("Distributed Storage", "HTTP/REST", "Conectado a node-repository (8084)", "ok"),
-        ("Streaming", "HTTP/REST", "Conectado a node-media (8083)", "ok"),
-        ("Shared File", "HTTP/REST", "Simulado: el servicio no existe en el backend", "warn"),
+        ("Shared File", "HTTP/REST", "Conectado a node-shared-file (8085)", "ok"),
+        ("Streaming y fotos", "HTTP/REST", "Conectado a node-media (8083), visor y reproductor en la app", "ok"),
+        ("HPC", "REST → RMI", "Conectado a job-api (8082), la fachada REST del gestor RMI", "ok"),
         ("File Sync", "gRPC", "Simulado: conectividad real, falta el stub del .proto", "warn"),
-        ("HPC", "RMI", "Simulado: pantalla completa; RMI solo existe en la JVM", "warn"),
     ]
 
     def __init__(self, master, app):

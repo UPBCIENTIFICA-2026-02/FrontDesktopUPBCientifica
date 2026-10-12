@@ -45,7 +45,7 @@ class UPBApp(ctk.CTk):
         ("about", "Acerca de"),
     ]
     # En Archivos el título lo pone la ruta (migas de pan), como en el móvil.
-    TITLES = {"storage": "", "shared": "Compartidos conmigo"}
+    TITLES = {"storage": "", "shared": "Compartidos"}
     ICONS = {
         "dashboard": "⌂", "storage": "📁", "shared": "👥", "streaming": "▶", "hpc": "▣",
         "sync": "↻", "album": "🖼", "settings": "⚙", "about": "ⓘ",

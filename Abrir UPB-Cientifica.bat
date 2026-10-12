@@ -24,7 +24,7 @@ if not defined PY (
 )
 
 rem --- 2. Instalar dependencias solo si faltan ------------------------------
-%PY% -c "import customtkinter, PIL" >nul 2>&1
+%PY% -c "import customtkinter, PIL, av, sounddevice" >nul 2>&1
 if errorlevel 1 (
     echo Instalando dependencias por primera vez, espera un momento...
     %PY% -m pip install --user -r requirements.txt
@@ -36,14 +36,12 @@ if errorlevel 1 (
     )
 )
 
-rem --- 3. Levantar el mock de autenticacion (si hay Node y no esta ya corriendo)
-where node >nul 2>&1
-if not errorlevel 1 (
-    netstat -ano | findstr /R /C:":8080 .*LISTENING" >nul 2>&1
-    if errorlevel 1 (
-        start "Mock Auth UPB (no cerrar)" /min node "mock-auth-server\server.js"
-    )
-)
+rem --- 3. Los servicios NO se arrancan aqui ----------------------------------
+rem  La app usa los servicios reales (Auth 8081, Storage 8084, Shared File 8085,
+rem  node-media 8083, job-api 8082). En el PC de desarrollo los arranca
+rem  UPB-CIENTIFICA\despliegue\cluster-virtualbox\7-iniciar-servicios-windows.ps1.
+rem  El mock antiguo (mock-auth-server, puerto 8080) ya no se lanza: ese puerto
+rem  es ahora el de node-web.
 
 rem --- 4. Abrir la aplicacion sin dejar la consola abierta ------------------
 set "PYW=pythonw"

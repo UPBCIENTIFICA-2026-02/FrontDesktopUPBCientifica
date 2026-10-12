@@ -1,28 +1,26 @@
 # -*- coding: utf-8 -*-
-"""Vista "Compartidos conmigo" (Shared File). Igual que SharedFileScreen.kt del
-móvil: buscador (nombre o propietario), icono por tipo, avatar del
-propietario, permiso en palabras ("Puede editar", "Solo lectura") y hoja de
-detalles. Además: compartir un archivo y revocar."""
+"""Vista Compartidos (Shared File). Igual que SharedFileScreen.kt del móvil:
+
+  Conmigo       ListarCompartidosConmigo. Una carpeta se abre aquí mismo (su
+                contenido lo lista Storage, que ya aplica el permiso); imágenes
+                y videos se ven en el visor; lo demás se descarga.
+  Que comparto  ListarQueYoComparto. Cambiar el nivel
+                (ActualizarPermisosCompartidos) o dejar de compartir.
+"""
 
 import customtkinter as ctk
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 
-from ..theme import ERROR, SECONDARY_CONTAINER, ON_SECONDARY_CONTAINER, ON_SURFACE_VARIANT, font
-from ..widgets import (primary_button, icon_button, chip, SearchBar, StatePanel, list_item, avatar,
-                       tipo_archivo, DetailsDialog, ConfirmDialog)
-from ..utils import run_async, describir
-from .compartir_dialog import CompartirDialog
+from ..theme import (ERROR, SECONDARY_CONTAINER, ON_SECONDARY_CONTAINER, ON_SURFACE, ON_SURFACE_VARIANT,
+                     SURFACE_CONTAINER_HIGH, font)
+from ..widgets import (icon_button, chip, SearchBar, StatePanel, list_item, avatar, tipo_archivo,
+                       formatear_tamano, DetailsDialog, ConfirmDialog, Dialog, primary_button, ghost_button)
+from ..utils import run_async, describir, open_with_system
+from ..config import DOWNLOAD_DIR, IMG_EXT, VID_EXT
+from ..data.sharedfile import NIVELES, texto_nivel
+from .visor import VisorImagen, Reproductor
 
-
-def describir_permiso(permiso_unix):
-    """"rw-" -> "Puede editar": el permiso Unix en algo que entienda cualquiera."""
-    if "w" in permiso_unix:
-        return "Puede editar"
-    if "r" in permiso_unix:
-        return "Solo lectura"
-    if "x" in permiso_unix:
-        return "Solo ejecución"
-    return "Sin acceso"
+SECCIONES = ("Conmigo", "Que comparto")
 
 
 class SharedFilesView(ctk.CTkFrame):
@@ -30,75 +28,230 @@ class SharedFilesView(ctk.CTkFrame):
         super().__init__(master, fg_color="transparent")
         self.app = app
         self.repo = app.api.shared
+        self.storage = app.api.storage
+        self.seccion = SECCIONES[0]
+        self.ruta = []              # carpetas compartidas abiertas: [(id, nombre)]
         self.datos = None
+        self._peticion = 0
 
         self.busqueda = SearchBar(self, "Buscar en Compartidos", lambda _q: self._pintar())
         self.busqueda.pack(fill="x", pady=(0, 8))
 
         bar = ctk.CTkFrame(self, fg_color="transparent")
         bar.pack(fill="x", pady=(0, 6))
+        self.selector = ctk.CTkSegmentedButton(bar, values=list(SECCIONES), command=self._cambiar_seccion)
+        self.selector.set(self.seccion)
+        self.selector.pack(side="left")
         if self.repo.simulado:
-            chip(bar, "Simulado · el servicio aún no existe en el backend", "warn").pack(side="left")
+            chip(bar, "Shared File desactivado", "warn").pack(side="left", padx=10)
         else:
-            chip(bar, "Shared File · conectado", "ok").pack(side="left")
+            chip(bar, f"Shared File · {app.api.conf.url_compartidos}", "ok").pack(side="left", padx=10)
         icon_button(bar, "↻", self.cargar).pack(side="right")
-        primary_button(bar, "Compartir un archivo", self._compartir, width=190, height=36).pack(side="right", padx=8)
 
+        self.migas = ctk.CTkFrame(self, fg_color="transparent")
         self.panel = StatePanel(self)
         self.panel.pack(fill="both", expand=True)
         self.cargar()
 
+    # --- Carga ---------------------------------------------------------------
     def cargar(self):
+        self._pintar_migas()
         self.panel.loading()
+        self._peticion += 1
+        n = self._peticion
+        if self.ruta:
+            dir_id = self.ruta[-1][0]
+            fn = lambda: self.storage.listar(dir_id)
+        elif self.seccion == "Conmigo":
+            fn = self.repo.compartidos_conmigo
+        else:
+            fn = self.repo.que_yo_comparto
 
         def ok(datos):
-            self.datos = datos
-            self._pintar()
+            if n == self._peticion:
+                self.datos = datos
+                self._pintar()
 
-        run_async(self, self.repo.compartidos_conmigo, ok,
-                  lambda e: self.panel.error(describir(e), self.cargar))
+        def err(e):
+            if n == self._peticion:
+                self.datos = None
+                self.panel.error(describir(e), self.cargar)
+
+        run_async(self, fn, ok, err)
+
+    def _cambiar_seccion(self, valor):
+        self.seccion = valor
+        self.ruta = []
+        self.cargar()
+
+    # --- Pintar --------------------------------------------------------------
+    def _pintar_migas(self):
+        for w in self.migas.winfo_children():
+            w.destroy()
+        if not self.ruta:
+            self.migas.pack_forget()
+            return
+        self.migas.pack(fill="x", before=self.panel)
+        niveles = [(None, "Compartidos")] + self.ruta
+        for i, (_id, nombre) in enumerate(niveles):
+            actual = i == len(niveles) - 1
+            if i:
+                ctk.CTkLabel(self.migas, text="›", text_color=ON_SURFACE_VARIANT,
+                             font=ctk.CTkFont(size=20)).pack(side="left", padx=2)
+            ctk.CTkButton(self.migas, text=nombre, width=10, height=40, corner_radius=20,
+                          fg_color="transparent", hover_color=SURFACE_CONTAINER_HIGH,
+                          text_color=ON_SURFACE if actual else ON_SURFACE_VARIANT, text_color_disabled=ON_SURFACE,
+                          font=font("title_large" if actual else "title_medium"),
+                          state="disabled" if actual else "normal",
+                          command=lambda i=i: self._ir_a(i)).pack(side="left")
+
+    def _ir_a(self, i):
+        self.ruta = self.ruta[:i]          # 0 = la lista
+        self.cargar()
 
     def _pintar(self):
         if self.datos is None:
             return
         q = self.busqueda.value.strip().lower()
-        visibles = [r for r in self.datos if q in r.nombre_archivo.lower() or q in r.propietario.lower()]
+        if self.ruta:
+            return self._pintar_carpeta(q)
+        visibles = [r for r in self.datos
+                    if q in r.nombre.lower() or q in r.propietario.lower() or q in r.destinatario_id.lower()]
         if not self.datos:
-            self.panel.empty("Cuando alguien comparta un archivo o carpeta contigo, aparecerá aquí.",
-                             "👥", "Nada compartido todavía")
+            if self.seccion == "Conmigo":
+                self.panel.empty("Cuando alguien comparta un archivo o carpeta contigo, aparecerá aquí.",
+                                 "👥", "Nada compartido contigo")
+            else:
+                self.panel.empty("Comparte desde Mis archivos con el botón Compartir de cada archivo o carpeta.",
+                                 "👥", "No compartes nada")
             return
         if not visibles:
-            self.panel.empty(f"Nada coincide con \"{q}\" en el nombre ni en el propietario.",
-                             "🔍", "Sin resultados")
+            self.panel.empty(f"Nada coincide con \"{q}\".", "🔍", "Sin resultados")
             return
         self.panel.clear()
+        conmigo = self.seccion == "Conmigo"
         for r in visibles:
-            def propietario(box, r=r):
+            persona = r.propietario if conmigo else r.destinatario_id
+
+            def secundario(box, r=r, persona=persona):
                 fila = ctk.CTkFrame(box, fg_color="transparent")
                 fila.pack(anchor="w")
-                avatar(fila, r.propietario, 18).pack(side="left")
-                ctk.CTkLabel(fila, text=r.propietario, font=font("body"),
-                             text_color=ON_SURFACE_VARIANT).pack(side="left", padx=6)
+                avatar(fila, persona, 18).pack(side="left")
+                ctk.CTkLabel(fila, text=persona if conmigo else f"con {r.destinatario_legible}",
+                             font=font("body"), text_color=ON_SURFACE_VARIANT).pack(side="left", padx=6)
 
-            _row, tr = list_item(self.panel, None, r.nombre_archivo, propietario,
-                                 tipo=tipo_archivo(r.nombre_archivo), on_click=lambda r=r: self._detalles(r))
-            ctk.CTkLabel(tr, text=f"  {describir_permiso(r.permiso_unix)}  ", fg_color=SECONDARY_CONTAINER,
+            _row, tr = list_item(self.panel, None, r.nombre, secundario, tipo=tipo_archivo(r.nombre, r.es_directorio),
+                                 on_click=lambda r=r: self._tocar_relacion(r))
+            ctk.CTkLabel(tr, text=f"  {texto_nivel(r.nivel_permiso)}  ", fg_color=SECONDARY_CONTAINER,
                          text_color=ON_SECONDARY_CONTAINER, corner_radius=8, height=24,
-                         font=font("label_small")).pack()
+                         font=font("label_small")).pack(side="left")
+            icon_button(tr, "⋮", lambda r=r: self._detalles(r), size=34).pack(side="left", padx=(6, 0))
+
+    def _pintar_carpeta(self, q):
+        visibles = [a for a in self.datos if q in a.nombre.lower()]
+        if not visibles:
+            self.panel.empty("Todavía no hay nada aquí." if not self.datos else f"Nada coincide con \"{q}\".",
+                             "📂", "Esta carpeta está vacía" if not self.datos else "Sin resultados")
+            return
+        self.panel.clear()
+        for a in visibles:
+            sub = "Carpeta" if a.es_directorio else formatear_tamano(a.tamano_bytes)
+            list_item(self.panel, None, a.nombre, sub, tipo=tipo_archivo(a.nombre, a.es_directorio),
+                      on_click=lambda a=a: self._tocar_elemento(a.id, a.nombre, a.es_directorio))
+
+    # --- Acciones ------------------------------------------------------------
+    def _tocar_relacion(self, r):
+        if self.seccion == "Conmigo":
+            self._tocar_elemento(r.elemento_id, r.nombre, r.es_directorio)
+        else:
+            self._gestionar(r)
+
+    def _tocar_elemento(self, elemento_id, nombre, es_directorio):
+        """Carpeta -> se abre aquí; imagen/video -> visor; otro -> descargar."""
+        if es_directorio:
+            self.ruta.append((elemento_id, nombre))
+            self.cargar()
+        elif nombre.lower().endswith(VID_EXT):
+            Reproductor(self, nombre, lambda: self.storage.fuente_video(elemento_id))
+        elif nombre.lower().endswith(IMG_EXT):
+            VisorImagen(self, nombre, lambda: self.storage.leer(elemento_id))
+        else:
+            self._descargar(elemento_id, nombre)
 
     def _detalles(self, r):
-        DetailsDialog(self, r.nombre_archivo, tipo_archivo(r.nombre_archivo), [
-            ("Propietario", r.propietario),
-            ("Tu acceso", f"{describir_permiso(r.permiso_unix)} ({r.permiso_unix})"),
-            ("Identificador", r.archivo_id),
-        ], [("Quitar de mis compartidos", lambda: self._revocar(r), ERROR)])
+        if self.seccion == "Que comparto":
+            return self._gestionar(r)
+        filas = [("Propietario", r.propietario), ("Compartido por", r.compartido_por),
+                 ("Tu acceso", texto_nivel(r.nivel_permiso))]
+        if r.fecha_expiracion:
+            filas.append(("Caduca", r.fecha_expiracion[:10]))
+        if not r.es_directorio:
+            filas.append(("Tamaño", formatear_tamano(r.tamano_bytes)))
+        acciones = [("Abrir", lambda: self._tocar_elemento(r.elemento_id, r.nombre, r.es_directorio), "primary")]
+        if not r.es_directorio:
+            acciones.insert(0, ("Descargar", lambda: self._descargar(r.elemento_id, r.nombre), "tonal"))
+        DetailsDialog(self, r.nombre, tipo_archivo(r.nombre, r.es_directorio), filas, acciones)
+
+    def _gestionar(self, r):
+        GestionarDialog(self, r, self._cambiar_nivel, self._revocar)
+
+    def _cambiar_nivel(self, r, nivel):
+        def ok(advertencia):
+            if advertencia:
+                messagebox.showwarning("Permiso cambiado", advertencia, parent=self)
+            self.cargar()
+        run_async(self, lambda: self.repo.cambiar_nivel(r.compartido_id, nivel), ok,
+                  lambda e: messagebox.showerror("No se pudo cambiar el permiso", describir(e), parent=self))
 
     def _revocar(self, r):
         def quitar():
             run_async(self, lambda: self.repo.revocar(r.compartido_id), lambda _x: self.cargar(),
-                      lambda e: messagebox.showerror("Error", describir(e)))
-        ConfirmDialog(self, "👥", "¿Quitar de tus compartidos?",
-                      f"Dejarás de ver «{r.nombre_archivo}».", "Quitar", quitar)
+                      lambda e: messagebox.showerror("No se pudo dejar de compartir", describir(e), parent=self))
+        ConfirmDialog(self, "👥", "¿Dejar de compartir?",
+                      f"{r.destinatario_legible} perderá el acceso a «{r.nombre}» de inmediato.",
+                      "Dejar de compartir", quitar)
 
-    def _compartir(self):
-        CompartirDialog(self, self.app.api, on_done=self.cargar)
+    def _descargar(self, elemento_id, nombre):
+        destino = filedialog.asksaveasfilename(
+            title="Guardar como", initialfile=nombre,
+            initialdir=str(DOWNLOAD_DIR) if DOWNLOAD_DIR.exists() else None)
+        if not destino:
+            return
+
+        def listo(path):
+            if messagebox.askyesno("Descarga completa", f"Guardado en:\n{path}\n\n¿Abrir el archivo?"):
+                open_with_system(path)
+        run_async(self, lambda: self.storage.descargar(elemento_id, destino), listo,
+                  lambda e: messagebox.showerror("Error al descargar", describir(e)))
+
+
+class GestionarDialog(Dialog):
+    """Lo que comparto: cambiar el permiso o dejar de compartir."""
+
+    def __init__(self, master, relacion, on_cambiar, on_revocar):
+        super().__init__(master, "Compartido", 480, 400)
+        r = relacion
+        ctk.CTkLabel(self, text=r.nombre, font=font("title_large"), wraplength=420,
+                     justify="left").pack(anchor="w", padx=24, pady=(20, 2))
+        ctk.CTkLabel(self, text=f"Compartido con {r.destinatario_legible}",
+                     text_color=ON_SURFACE_VARIANT).pack(anchor="w", padx=24)
+        ctk.CTkLabel(self, text="Permiso", font=font("title_small")).pack(anchor="w", padx=24, pady=(18, 4))
+        self.nivel = ctk.StringVar(value=r.nivel_permiso)
+        for valor, texto in NIVELES:
+            ctk.CTkRadioButton(self, text=texto, variable=self.nivel, value=valor).pack(anchor="w", padx=28, pady=4)
+
+        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar.pack(fill="x", side="bottom", padx=24, pady=20)
+
+        def guardar():
+            self.destroy()
+            if self.nivel.get() != r.nivel_permiso:
+                on_cambiar(r, self.nivel.get())
+
+        def revocar():
+            self.destroy()
+            on_revocar(r)
+
+        primary_button(bar, "Guardar", guardar, width=110).pack(side="right")
+        ghost_button(bar, "Dejar de compartir", revocar, width=170).pack(side="left")
+        bar.winfo_children()[-1].configure(text_color=ERROR)

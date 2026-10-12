@@ -25,7 +25,7 @@ SERVICIOS = [
     ("streaming", "▶", "Streaming", "Videos y material audiovisual"),
     ("hpc", "▣", "Cómputo HPC", "Lanza y sigue trabajos en el clúster"),
     ("sync", "↻", "Sincronización", "Mantén una carpeta al día con el servidor"),
-    ("album", "🖼", "Álbum de fotos", "Explora las imágenes de una carpeta"),
+    ("album", "🖼", "Álbum de fotos", "Tus fotos, con miniaturas y visor"),
 ]
 # Cada servicio con su par de colores del tema (igual que en el móvil).
 COLORES = [
@@ -186,10 +186,6 @@ class DashboardView(ctk.CTkScrollableFrame):
                 self.btn_probar.configure(state="normal", text="Comprobar conexión")
 
         for nombre, destino, holder in self.estado_cells:
-            if nombre == "HPC":   # RMI: no hay endpoint que probar todavía
-                self._pintar(holder, "sin cliente", "neutral")
-                terminado()
-                continue
             self._pintar(holder, "…", "info")
 
             def ok(alcanzable, h=holder):

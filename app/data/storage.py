@@ -6,8 +6,10 @@ Endpoints:
   GET    /storage/directorios/{id}           -> lista de ArchivoDto
   POST   /storage/archivos (multipart)       -> ArchivoDto creado
          ?directorioDestino=...&sobrescribir=false
-  GET    /storage/archivos/{id}/descargar
-  DELETE /storage/archivos/{id}
+  GET    /storage/archivos/{id}/descargar      (admite Range: el reproductor lo usa)
+  DELETE /storage/archivos/{id}                 (solo archivos)
+  POST   /storage/directorios                   {nombre, directorioPadreId}
+  GET    /storage/cuota                         {usados, cuota, disponibles}
 
 En modo simulado (sin backend) se trabaja sobre un Home local en
 ~/.upbcientifica/home, así subir, bajar, borrar y navegar funcionan igual.
@@ -83,6 +85,33 @@ class StorageRepository:
             shutil.rmtree(p) if p.is_dir() else p.unlink()
             return
         self.rest.delete(f"/storage/archivos/{archivo_id}")
+
+    def crear_carpeta(self, nombre, padre=RAIZ):
+        if self.simulado:
+            p = self._ruta_local(padre) / nombre
+            p.mkdir(parents=False, exist_ok=False)
+            return self._dto_local(p)
+        return ArchivoDto.from_json(self.rest.post_json(
+            "/storage/directorios", {"nombre": nombre, "directorioPadreId": padre}) or {"nombre": nombre})
+
+    def cuota(self):
+        """(usados, cuota) en bytes, o None en modo simulado."""
+        if self.simulado:
+            return None
+        d = self.rest.get_json("/storage/cuota") or {}
+        return int(d.get("usados") or 0), int(d.get("cuota") or 0)
+
+    def leer(self, archivo_id):
+        """Contenido completo en memoria: solo para imágenes, que el visor necesita enteras."""
+        if self.simulado:
+            return self._ruta_local(archivo_id).read_bytes()
+        return self.rest.get_bytes(f"/storage/archivos/{archivo_id}/descargar")
+
+    def fuente_video(self, archivo_id):
+        """(url, cabeceras) para reproducir sin descargar el archivo entero."""
+        if self.simulado:
+            return str(self._ruta_local(archivo_id)), {}
+        return self.rest.url(f"/storage/archivos/{archivo_id}/descargar"), self.rest.cabeceras_auth()
 
     def ruta_local(self, archivo_id):
         """Solo en modo simulado: ruta real en disco (para abrir con el sistema)."""

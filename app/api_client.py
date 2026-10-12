@@ -7,13 +7,13 @@ en el móvil: decide qué implementación usa cada repositorio (real o simulada)
 a partir de la configuración. Las vistas nunca saben si por debajo hay SOAP,
 REST o datos de prueba.
 
-  Servicio             Protocolo   Estado
-  Authentication       SOAP        Real (mock server.js o node-soap)
-  Distributed Storage  REST        Real (node-repository:8084) o Home local
-  Streaming            REST        Real (node-media:8083) o catálogo simulado
-  Shared File          REST        Simulado (el servicio no existe aún)
+  Servicio             Protocolo   Destino
+  Authentication       SOAP        node-soap (8081) o el mock antiguo (8080)
+  Distributed Storage  REST        node-repository:8084 (o Home local en demo)
+  Shared File          REST        node-shared-file:8085 (VM node-repository)
+  Streaming + Album    REST        node-media:8083
+  HPC                  REST        job-api:8082, la fachada REST del gestor RMI
   File Sync            gRPC        Simulado (conectividad real; falta el stub)
-  HPC                  RMI         Simulado (RMI no existe fuera de la JVM)
 """
 
 import os
@@ -28,7 +28,7 @@ from .data.auth import AuthRepository
 from .data.storage import StorageRepository
 from .data.sharedfile import SharedFileRepository
 from .data.streaming import StreamingRepository
-from .data.hpc import HpcRepository
+from .data.hpc import HpcRepository, SimuladorHpc
 from .data.filesync import FileSyncRepository
 
 
@@ -39,7 +39,6 @@ class ApiClient:
         self.sesion = None          # SessionResult tras un login real
         self.modo_demo = False      # True = sin servidor, todo simulado
         self.filesync = FileSyncRepository()
-        self.hpc = HpcRepository()
         self.reconfigurar()
 
     # --- Composición de dependencias ---------------------------------------
@@ -54,11 +53,17 @@ class ApiClient:
             RestClient(c.url_storage, self.tokens, "Storage"),
             usar_datos_simulados=demo or c.storage_simulado)
         self.streaming = StreamingRepository(
-            RestClient(c.url_media, self.tokens, "Streaming"),
+            RestClient(c.url_media, self.tokens, "node-media"),
             usar_datos_simulados=demo or c.streaming_simulado)
         self.shared = SharedFileRepository(
-            RestClient(c.url_storage, self.tokens, "Shared File"),
-            usar_datos_simulados=demo or not c.shared_file_disponible)
+            RestClient(c.url_compartidos, self.tokens, "Shared File"),
+            disponible=not demo and c.shared_file_disponible)
+        # El simulador guarda estado: se conserva mientras no cambie el modo.
+        if demo or c.hpc_simulado:
+            if not isinstance(getattr(self, "hpc", None), SimuladorHpc):
+                self.hpc = SimuladorHpc()
+        else:
+            self.hpc = HpcRepository(RestClient(c.url_trabajos, self.tokens, "HPC (job-api)"))
 
     # --- Autenticación (SOAP) ----------------------------------------------
     @property
@@ -76,16 +81,16 @@ class ApiClient:
         return self.sesion
 
     def _nueva_sesion(self):
-        """Repositorios que guardan estado por usuario empiezan limpios en cada
-        sesión: los trabajos HPC de una cuenta no deben verse en la siguiente."""
-        self.hpc = HpcRepository()
+        """Los trabajos simulados de una cuenta no deben verse en la siguiente."""
+        if isinstance(getattr(self, "hpc", None), SimuladorHpc):
+            self.hpc = SimuladorHpc()
 
     def entrar_demo(self, usuario):
         """Entra sin servidor: todos los servicios con datos simulados/locales."""
         self.modo_demo = True
         self.sesion = None
         self.config["username"] = usuario or "demo"
-        self._nueva_sesion()
+        self.hpc = SimuladorHpc()
         self.reconfigurar()
 
     def logout(self):
@@ -109,10 +114,10 @@ class ApiClient:
         return [
             ("Authentication", "SOAP", c.url_auth, "demo" if demo else c.descripcion_auth()),
             ("Distributed Storage", "HTTP/REST", c.url_storage, modo(c.storage_simulado)),
-            ("Streaming", "HTTP/REST", c.url_media, modo(c.streaming_simulado)),
-            ("Shared File", "HTTP/REST", c.url_storage, modo(not c.shared_file_disponible)),
+            ("Shared File", "HTTP/REST", c.url_compartidos, modo(not c.shared_file_disponible)),
+            ("Streaming y fotos", "HTTP/REST", c.url_media, modo(c.streaming_simulado)),
+            ("HPC (job-api)", "HTTP/REST → RMI", c.url_trabajos, modo(c.hpc_simulado)),
             ("File Sync", "gRPC", c.direccion_sync, "simulado"),
-            ("HPC", "RMI", "srv-rmi", "simulado"),
         ]
 
     @staticmethod

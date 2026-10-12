@@ -20,12 +20,18 @@ Kotlin + Jetpack Compose):
 
 | Servicio            | Protocolo | Estado en el cliente de escritorio |
 |---------------------|-----------|------------------------------------|
-| Authentication      | SOAP      | **Conectado** (mock `server.js` u node-soap real) |
-| Distributed Storage | HTTP/REST | **Conectado** a node-repository (8084): listar, navegar carpetas, subir, descargar, eliminar |
-| Streaming           | HTTP/REST | **Conectado** a node-media (8083): catálogo, búsqueda, paginación, reproducir |
-| Shared File         | HTTP/REST | Simulado: el servicio no existe en el backend (compartir / revocar listos) |
+| Authentication      | SOAP      | **Conectado** a node-soap (8081, `/soap/user.php`) |
+| Distributed Storage | HTTP/REST | **Conectado** a node-repository (8084): navegar, subir, crear carpeta, descargar, eliminar, cuota |
+| Shared File         | HTTP/REST | **Conectado** a node-shared-file (8085): compartir archivos y carpetas con usuarios o grupos, "Conmigo" / "Que comparto", cambiar permiso, dejar de compartir |
+| Streaming           | HTTP/REST | **Conectado** a node-media (8083): catálogo, reproducción **dentro de la app**, eliminar, buscar contenido nuevo |
+| Photo Album         | HTTP/REST | **Conectado** a node-media (8083): miniaturas, visor con zoom, eliminar |
+| HPC                 | REST → RMI | **Conectado** a job-api (8082), la fachada REST del gestor RMI: enviar (nombre, comando, prioridad), listar, ver salida y cancelar |
 | File Sync           | gRPC      | Simulado: indicador en la barra superior (conectividad real, ciclo simulado hasta generar el stub del `.proto`) |
-| HPC                 | RMI       | Simulado: pantalla completa (clúster, trabajos con progreso, envío); RMI solo existe en la JVM |
+
+**Imágenes y videos se ven dentro de la app** (`app/views/visor.py`): el
+reproductor (PyAV + sounddevice) pide el video por rangos con el token en la
+cabecera, así que se puede saltar en la línea de tiempo y nada se abre en el
+navegador ni en otro programa.
 
 Además, cada servicio REST puede pasar a **modo simulado** desde Configuración, y
 el login ofrece **"Entrar sin servidor (demo)"** para usar la app sin backend.
@@ -87,16 +93,19 @@ Reglas de dependencia (bajo acoplamiento):
 ## Requisitos
 
 - Python 3.9 o superior
-- Paquetes: `customtkinter`, `Pillow` (la red usa solo la biblioteca estándar)
-- Node.js (solo para el mock del Authentication Service)
+- Paquetes (`requirements.txt`): `customtkinter`, `Pillow`, `av` (PyAV, trae
+  ffmpeg incluido) y `sounddevice` (audio del reproductor). La red usa solo la
+  biblioteca estándar.
+- Los servicios encendidos. En el PC de desarrollo los arranca
+  `UPB-CIENTIFICA/despliegue/cluster-virtualbox/7-iniciar-servicios-windows.ps1 -HpcLocal`.
 
 En **Linux** puede que necesites Tkinter del sistema: `sudo apt install python3-tk`
 
 ## Abrir con doble clic
 
 - **Windows:** doble clic en **`Abrir UPB-Cientifica.bat`**. La primera vez
-  instala `customtkinter` y `Pillow`; si hay Node.js, levanta también el mock de
-  autenticación (ventana minimizada "Mock Auth UPB") y abre la app sin consola.
+  instala las dependencias y abre la app sin consola. Ya no lanza el mock de
+  autenticación: el puerto 8080 es ahora el de node-web.
 - **Linux:** `./abrir.sh` (o doble clic → "Ejecutar").
 
 Solo hace falta tener Python instalado (con "Add Python to PATH").
@@ -110,16 +119,14 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### Levantar el mock del Authentication Service
+### Autenticación
 
-```bash
-cd mock-auth-server
-node server.js
-```
+Por defecto la app usa el Authentication Service real en el **8081**
+(node-soap, o `herramientas/auth-local.js` del monorepo en desarrollo). Usuarios
+de prueba: `user1 / 1234`, `investigador / test`, `estudiante / test`.
 
-Escucha en el puerto **8080**. Usuarios de prueba: `user1 / 1234` e
-`investigador / test`. Emite tokens `mock-token-<usuario>-abc123`, el formato
-que aceptan Storage y Media cuando corren con `MODO_AUTENTICACION=simulado`.
+El mock antiguo (`mock-auth-server/server.js`, puerto 8080) sigue disponible
+desde Configuración, pero choca con node-web si están en el mismo PC.
 
 ### Configurar la conexión
 
@@ -128,10 +135,14 @@ Desde **Configuración** (o "Configurar conexión" en el login):
 - **Entorno LOCAL:** todos los servicios en el host indicado (por defecto
   `127.0.0.1`; se evita `localhost` porque en Windows intenta IPv6 primero y
   añade ~2 s a cada llamada si el servicio solo escucha en IPv4).
-- **Entorno LABORATORIO:** una IP por VM (SOAP 8081, Storage 8084, Media 8083,
-  Sync 9090).
-- Interruptores: usar mock de autenticación, Storage/Streaming simulados,
+- **Entorno LABORATORIO:** una IP por VM (SOAP 8081, Storage 8084 y Shared
+  File 8085 en la VM node-repository, Media 8083, Sync 9090, job-api 8082 en
+  hpc-master).
+- Interruptores: mock de autenticación, Storage/Streaming/HPC simulados,
   Shared File disponible.
+
+Una configuración guardada por una versión anterior (mock activado, Shared File
+apagado) se corrige sola la primera vez que se abre la app.
 
 Se guarda en `~/.upbcientifica/config.json`. En modo simulado, Storage usa un
 Home local en `~/.upbcientifica/home`.

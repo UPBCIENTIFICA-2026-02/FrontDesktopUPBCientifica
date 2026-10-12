@@ -1,2 +1,6 @@
 customtkinter>=5.2
 Pillow>=9.0
+# Reproductor de video dentro de la app (trae ffmpeg incluido)
+av>=12
+# Audio del reproductor; sin él los videos se ven en silencio
+sounddevice>=0.4

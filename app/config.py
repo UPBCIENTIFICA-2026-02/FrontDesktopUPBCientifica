@@ -23,10 +23,12 @@ DEFAULT_CONFIG = {
     "host_storage_lab": "192.168.1.195",
     "host_media_lab": "192.168.1.195",
     "host_sync_lab": "192.168.1.195",
-    "usar_mock_auth": True,              # mock-auth-server/server.js en el 8080
+    "host_hpc_lab": "192.168.56.10",     # hpc-master: job-api (fachada REST del gestor RMI)
+    "usar_mock_auth": False,             # False = Auth SOAP real en el 8081 (node-soap o auth-local)
     "storage_simulado": False,           # False = node-repository real (8084)
     "streaming_simulado": False,         # False = node-media real (8083)
-    "shared_file_disponible": False,     # el servicio aún no existe en el backend
+    "shared_file_disponible": True,      # node-shared-file (8085, VM node-repository)
+    "hpc_simulado": False,               # False = job-api real (8082)
 
     # --- Preferencias del cliente ---
     "username": "",
@@ -36,7 +38,13 @@ DEFAULT_CONFIG = {
     "sync_folder": "",
     "sync_schedule": "Manual",
     "vista_archivos": "lista",           # "lista" | "cuadricula"
+    "version_config": 2,
 }
+
+# Versión 2: los servicios reales ya existen. Una configuración guardada con la
+# versión anterior traía el mock de autenticación en el 8080 (ahí está ahora
+# node-web) y Shared File apagado; se corrigen una sola vez al cargarla.
+_MIGRACION_V2 = {"usar_mock_auth": False, "shared_file_disponible": True, "hpc_simulado": False}
 
 
 def load_config():
@@ -44,13 +52,21 @@ def load_config():
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     HOME_DIR.mkdir(parents=True, exist_ok=True)
     cfg = dict(DEFAULT_CONFIG)
+    guardada = {}
     if CONFIG_FILE.exists():
         try:
-            cfg.update(json.loads(CONFIG_FILE.read_text(encoding="utf-8")))
+            guardada = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+            cfg.update(guardada)
         except Exception:
-            pass
-    for viejo in ("server_url", "jobs"):   # campos de versiones anteriores, ya sin uso
+            guardada = {}
+    for viejo in ("server_url", "jobs", "album_folder", "video_folder"):   # campos ya sin uso
         cfg.pop(viejo, None)
+    # La versión se mira en lo GUARDADO: los valores por defecto ya traen la 2,
+    # y un archivo antiguo (sin el campo) parecería al día.
+    if guardada and int(guardada.get("version_config") or 1) < 2:
+        cfg.update(_MIGRACION_V2)
+        cfg["version_config"] = 2
+        save_config(cfg)
     return cfg
 
 

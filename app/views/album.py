@@ -1,110 +1,171 @@
 # -*- coding: utf-8 -*-
-"""Vista de álbum de fotos (galería local)."""
+"""Álbum de fotos (Photo Album, node-media). Cuadrícula con las miniaturas que
+genera node-media; al pulsar, la foto original se abre en el visor de la app
+(views/visor.py), con zoom y opción de eliminarla.
 
-import os
+Lo que se sube a Mis archivos no aparece aquí hasta "Buscar nuevas" (indexar).
+"""
+
+import io
+
 import customtkinter as ctk
-from tkinter import filedialog
+from tkinter import messagebox
 
-from ..theme import (ON_SURFACE_VARIANT as MUTED, WARNING as AMBER, SURFACE_CONTAINER as GRAY_BG,
-                     SURFACE_CONTAINER_LOW as CARD, SURFACE_CONTAINER_HIGH, OUTLINE_VARIANT)
-from ..widgets import section_title, primary_button
-from ..utils import open_with_system
-from ..config import IMG_EXT, save_config
+from ..theme import (ON_SURFACE_VARIANT, SURFACE_CONTAINER, SURFACE_CONTAINER_HIGH, font)
+from ..widgets import tonal_button, icon_button, chip, StatePanel, SearchBar, bind_click
+from ..utils import run_async, describir
+from .visor import VisorImagen
 
 try:
     from PIL import Image
-    HAS_PIL = True
 except ImportError:
-    HAS_PIL = False
+    Image = None
+
+LADO = 150          # miniatura cuadrada
+MIN_COL = LADO + 24
 
 
 class AlbumView(ctk.CTkFrame):
-    THUMB = (150, 150)
-    COLS = 4
-
     def __init__(self, master, app):
         super().__init__(master, fg_color="transparent")
         self.app = app
-        self._thumbs = []  # mantener referencias para evitar GC
-        section_title(self, "Álbum de fotos",
-                      "Explora y visualiza imágenes de una carpeta local (funciona sin backend).").pack(anchor="w", pady=(0, 16))
+        self.repo = app.api.streaming          # node-media sirve Streaming y Photo Album
+        self.datos = None
+        self._miniaturas = {}                   # id -> CTkImage (caché de la sesión)
+        self._cols = None
+        self._pintando = False
 
+        self.busqueda = SearchBar(self, "Buscar fotos", lambda _q: self._pintar())
+        self.busqueda.pack(fill="x", pady=(0, 8))
         bar = ctk.CTkFrame(self, fg_color="transparent")
-        bar.pack(fill="x", pady=(0, 10))
-        primary_button(bar, "🖼  Elegir carpeta de imágenes", self._pick, width=240).pack(side="left")
-        self.info = ctk.CTkLabel(bar, text="", text_color=MUTED)
-        self.info.pack(side="left", padx=12)
-
-        self.gallery = ctk.CTkScrollableFrame(self, fg_color=CARD, corner_radius=12,
-                                              border_width=1, border_color=OUTLINE_VARIANT)
-        self.gallery.pack(fill="both", expand=True)
-
-        if not HAS_PIL:
-            ctk.CTkLabel(self.gallery, text="Instala Pillow para ver las imágenes:  pip install Pillow",
-                         text_color=AMBER).pack(pady=30)
+        bar.pack(fill="x", pady=(0, 4))
+        if self.repo.simulado:
+            chip(bar, "Simulado · sin fotos", "warn").pack(side="left")
         else:
-            folder = self.app.config.get("album_folder")
-            if folder and os.path.isdir(folder):
-                self._load(folder)
-            else:
-                ctk.CTkLabel(self.gallery, text="Elige una carpeta con imágenes para mostrar la galería.",
-                             text_color=MUTED).pack(pady=30)
+            chip(bar, f"node-media · {app.api.conf.url_media}", "ok").pack(side="left")
+        icon_button(bar, "↻", self.cargar).pack(side="right")
+        self.btn_indexar = tonal_button(bar, "🔎  Buscar nuevas", self._indexar, width=160, height=36)
+        self.btn_indexar.pack(side="right", padx=8)
 
-    def _pick(self):
-        p = filedialog.askdirectory(title="Carpeta con imágenes")
-        if p:
-            self.app.config["album_folder"] = p
-            save_config(self.app.config)
-            self._load(p)
+        self.panel = StatePanel(self)
+        self.panel.pack(fill="both", expand=True)
+        self.panel.bind("<Configure>", self._al_redimensionar, add="+")
+        self.cargar()
 
-    def _load(self, folder):
-        for w in self.gallery.winfo_children():
-            w.destroy()
-        self._thumbs.clear()
-        if not HAS_PIL:
-            return
-        files = [f for f in sorted(os.listdir(folder)) if f.lower().endswith(IMG_EXT)]
-        self.info.configure(text=f"{len(files)} imagen(es) en {os.path.basename(folder)}")
-        if not files:
-            ctk.CTkLabel(self.gallery, text="La carpeta no contiene imágenes.", text_color=MUTED).pack(pady=30)
-            return
-        for c in range(self.COLS):
-            self.gallery.grid_columnconfigure(c, weight=1)
-        r = c = 0
-        for name in files[:200]:
-            full = os.path.join(folder, name)
-            try:
-                im = Image.open(full)
-                im.thumbnail(self.THUMB)
-                cimg = ctk.CTkImage(light_image=im, dark_image=im, size=im.size)
-                self._thumbs.append(cimg)
-            except Exception:
-                continue
-            cell = ctk.CTkFrame(self.gallery, fg_color=GRAY_BG, corner_radius=10)
-            cell.grid(row=r, column=c, padx=8, pady=8, sticky="nsew")
-            ctk.CTkButton(cell, image=cimg, text="", fg_color="transparent",
-                          hover_color=SURFACE_CONTAINER_HIGH, command=lambda p=full: self._view(p)).pack(padx=6, pady=(6, 2))
-            ctk.CTkLabel(cell, text=(name[:22] + "\u2026") if len(name) > 23 else name,
-                         text_color=MUTED, font=ctk.CTkFont(size=11)).pack(pady=(0, 6))
-            c += 1
-            if c >= self.COLS:
-                c = 0
-                r += 1
+    @staticmethod
+    def _columnas(ancho):
+        return max(2, (max(ancho, 600) - 30) // MIN_COL)
 
-    def _view(self, path):
-        if not HAS_PIL:
+    def _al_redimensionar(self, event):
+        # Pintar destruye y crea widgets, y eso dispara <Configure> DENTRO del
+        # propio pintado: sin la guarda, se llamaría a sí mismo sin fin.
+        if self._pintando or self.datos is None:
             return
-        top = ctk.CTkToplevel(self)
-        top.title(os.path.basename(path))
-        top.geometry("820x640")
-        top.after(50, top.lift)
+        if self._columnas(event.width) != self._cols:
+            self._pintar()
+
+    def cargar(self):
+        self.panel.loading()
+
+        def ok(datos):
+            self.datos = datos
+            self._pintar()
+
+        run_async(self, lambda: self.repo.fotos(0), ok, lambda e: self.panel.error(describir(e), self.cargar))
+
+    def _indexar(self):
+        self.btn_indexar.configure(state="disabled", text="Buscando…")
+
+        def fin(res):
+            self.btn_indexar.configure(state="normal", text="🔎  Buscar nuevas")
+            if res[0] == 0:
+                messagebox.showinfo("Álbum", "No hay fotos ni videos nuevos en Mis archivos.", parent=self)
+            self.cargar()
+
+        def err(e):
+            self.btn_indexar.configure(state="normal", text="🔎  Buscar nuevas")
+            messagebox.showerror("No se pudo buscar contenido nuevo", describir(e), parent=self)
+
+        run_async(self, self.repo.indexar, fin, err)
+
+    def _pintar(self):
+        if self.datos is None or self._pintando:
+            return
+        self._pintando = True
         try:
-            im = Image.open(path)
-            im.thumbnail((780, 560))
-            cimg = ctk.CTkImage(light_image=im, dark_image=im, size=im.size)
-            lbl = ctk.CTkLabel(top, image=cimg, text="")
-            lbl.image = cimg  # evitar GC
-            lbl.pack(padx=10, pady=10, expand=True)
-        except Exception as e:
-            ctk.CTkLabel(top, text=f"No se pudo abrir la imagen:\n{e}").pack(pady=30)
-        primary_button(top, "Abrir con el sistema", lambda: open_with_system(path), width=200).pack(pady=(0, 12))
+            self._pintar_rejilla()
+        finally:
+            self._pintando = False
+
+    def _pintar_rejilla(self):
+        # Las columnas se fijan SIEMPRE, también si no hay nada que mostrar: si no,
+        # cada <Configure> volvería a pintar el estado vacío una y otra vez.
+        self._cols = self._columnas(self.panel.winfo_width())
+        q = self.busqueda.value.strip().lower()
+        visibles = [f for f in self.datos if q in f.titulo.lower()]
+        if not self.datos:
+            self.panel.empty("Sube fotos a Mis archivos y pulsa \"Buscar nuevas\".", "🖼",
+                             "No hay fotos", ("Buscar nuevas", self._indexar))
+            return
+        if not visibles:
+            self.panel.empty(f"Ninguna foto coincide con \"{q}\".", "🔍", "Sin resultados")
+            return
+        self.panel.clear()
+        cols = self._columnas(self.panel.winfo_width())
+        self._cols = cols
+        grid = ctk.CTkFrame(self.panel, fg_color="transparent")
+        grid.pack(fill="x", padx=8, pady=8)
+        for i, foto in enumerate(visibles):
+            celda = ctk.CTkFrame(grid, fg_color=SURFACE_CONTAINER, corner_radius=12, width=LADO, height=LADO + 34)
+            celda.grid(row=i // cols, column=i % cols, padx=6, pady=6)
+            celda.pack_propagate(False)
+            imagen = ctk.CTkLabel(celda, text="🖼", width=LADO, height=LADO, font=ctk.CTkFont(size=30),
+                                  text_color=ON_SURFACE_VARIANT)
+            imagen.pack()
+            ctk.CTkLabel(celda, text=_cortar(foto.titulo, 20), font=font("body_small"),
+                         text_color=ON_SURFACE_VARIANT).pack()
+            bind_click(celda, lambda f=foto: self._ver(f), hover=SURFACE_CONTAINER_HIGH)
+            self._cargar_miniatura(foto, imagen)
+
+    def _cargar_miniatura(self, foto, etiqueta):
+        if Image is None:
+            return
+        if foto.id in self._miniaturas:
+            etiqueta.configure(image=self._miniaturas[foto.id], text="")
+            return
+
+        def decodificar():
+            # node-media solo genera miniaturas si tiene FFmpeg; si no, se usa la
+            # original y se reduce aquí (más lento, pero se ve la foto).
+            datos = self.repo.miniatura(foto.id) if foto.tiene_miniatura else self.repo.contenido_foto(foto.id)
+            img = Image.open(io.BytesIO(datos))
+            img.load()
+            # Recorte cuadrado centrado, como ContentScale.Crop.
+            lado = min(img.size)
+            x, y = (img.width - lado) // 2, (img.height - lado) // 2
+            return img.crop((x, y, x + lado, y + lado)).resize((LADO, LADO))
+
+        def poner(img):
+            ci = ctk.CTkImage(light_image=img, dark_image=img, size=(LADO, LADO))
+            self._miniaturas[foto.id] = ci
+            try:
+                etiqueta.configure(image=ci, text="")
+            except Exception:
+                pass  # la cuadrícula se redibujó mientras llegaba
+
+        run_async(etiqueta, decodificar, poner, lambda _e: None)
+
+    def _ver(self, foto):
+        VisorImagen(self, foto.titulo, lambda: self.repo.contenido_foto(foto.id),
+                    on_eliminar=None if self.repo.simulado else (lambda: self._eliminar(foto)))
+
+    def _eliminar(self, foto):
+        def hecho(_r):
+            self._miniaturas.pop(foto.id, None)
+            self.cargar()
+        run_async(self, lambda: self.repo.eliminar_foto(foto.id), hecho,
+                  lambda e: messagebox.showerror("No se pudo eliminar", describir(e), parent=self))
+
+
+def _cortar(texto, n):
+    return texto if len(texto) <= n else texto[:n - 1] + "…"

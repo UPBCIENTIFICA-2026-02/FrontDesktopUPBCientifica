@@ -2,8 +2,9 @@
 """Vista "Mis archivos" (Distributed Storage). Igual que StorageScreen.kt del
 móvil: buscador, migas de pan, orden (nombre/tamaño), vista de lista o
 cuadrícula, secciones CARPETAS / ARCHIVOS, icono por tipo de archivo y hoja de
-detalles. Además, lo propio del escritorio: subir, descargar, compartir y
-eliminar."""
+detalles. Además, lo propio del escritorio: subir, crear carpeta, descargar,
+compartir (archivos y carpetas) y eliminar. Imágenes y videos se abren en el
+visor de la app (views/visor.py), sin pasar el archivo a otro programa."""
 
 import os
 import customtkinter as ctk
@@ -11,13 +12,22 @@ from tkinter import filedialog, messagebox
 
 from ..theme import (ON_SURFACE, ON_SURFACE_VARIANT, ERROR, SURFACE, SURFACE_CONTAINER_HIGH, BACKGROUND,
                      RADIUS_M, RADIUS_S, font, icon_font, tint)
-from ..widgets import (primary_button, icon_button, chip, section_header, outlined_card,
+from ..widgets import (primary_button, tonal_button, icon_button, chip, section_header, outlined_card,
                        SearchBar, StatePanel, list_item, icono_tipo, tipo_archivo, bind_click,
                        formatear_tamano, DetailsDialog, ConfirmDialog)
 from ..utils import open_with_system, run_async, describir
-from ..config import DOWNLOAD_DIR, save_config
+from ..config import DOWNLOAD_DIR, IMG_EXT, VID_EXT, save_config
 from ..data.storage import RAIZ
 from .compartir_dialog import CompartirDialog
+from .visor import VisorImagen, Reproductor
+
+
+def _es_imagen(nombre):
+    return nombre.lower().endswith(IMG_EXT)
+
+
+def _es_video(nombre):
+    return nombre.lower().endswith(VID_EXT)
 
 ORDENES = {
     "Nombre (A-Z)": (lambda a: a.nombre.lower(), False),
@@ -42,8 +52,12 @@ class StorageView(ctk.CTkFrame):
         self.busqueda = SearchBar(self, "Buscar en Mis archivos", lambda _q: self._pintar())
         self.busqueda.pack(fill="x", pady=(0, 6))
 
-        self.migas = ctk.CTkFrame(self, fg_color="transparent")
-        self.migas.pack(fill="x")
+        fila_migas = ctk.CTkFrame(self, fg_color="transparent")
+        fila_migas.pack(fill="x")
+        self.l_cuota = ctk.CTkLabel(fila_migas, text="", font=font("label_medium"), text_color=ON_SURFACE_VARIANT)
+        self.l_cuota.pack(side="right", padx=8)
+        self.migas = ctk.CTkFrame(fila_migas, fg_color="transparent")
+        self.migas.pack(side="left", fill="x", expand=True)
 
         bar = ctk.CTkFrame(self, fg_color="transparent")
         bar.pack(fill="x", pady=(2, 6))
@@ -62,6 +76,7 @@ class StorageView(ctk.CTkFrame):
         self.btn_vista.pack(side="right")
         icon_button(bar, "↻", self.recargar).pack(side="right")
         primary_button(bar, "↑  Subir", self._upload, width=110, height=36).pack(side="right", padx=8)
+        tonal_button(bar, "＋  Nueva carpeta", self._nueva_carpeta, width=150, height=36).pack(side="right")
 
         self.panel = StatePanel(self)
         self.panel.pack(fill="both", expand=True)
@@ -93,6 +108,11 @@ class StorageView(ctk.CTkFrame):
                 self.panel.error(describir(e), self.recargar)
 
         run_async(self, lambda: self.repo.listar(dir_id), ok, err)
+        run_async(self, self.repo.cuota, self._pintar_cuota, lambda _e: None)
+
+    def _pintar_cuota(self, cuota):
+        if cuota and cuota[1]:
+            self.l_cuota.configure(text=f"{formatear_tamano(cuota[0])} usados de {formatear_tamano(cuota[1])}")
 
     def _pintar(self):
         if self.datos is None:
@@ -122,12 +142,13 @@ class StorageView(ctk.CTkFrame):
             for c in carpetas:
                 _r, tr = list_item(self.panel, None, c.nombre, "Carpeta", tipo=tipo_archivo(c.nombre, True),
                                    on_click=lambda c=c: self._entrar(c))
-                ctk.CTkLabel(tr, text="›", font=ctk.CTkFont(size=22), text_color=ON_SURFACE_VARIANT).pack()
+                icon_button(tr, "⋮", lambda c=c: self._detalles(c), size=34).pack()
         if archivos:
             section_header(self.panel, "Archivos").pack(anchor="w", padx=16, pady=(12, 4))
             for a in archivos:
-                list_item(self.panel, None, a.nombre, f"{formatear_tamano(a.tamano_bytes)} · v{a.version}",
-                          tipo=tipo_archivo(a.nombre), on_click=lambda a=a: self._detalles(a))
+                _r, tr = list_item(self.panel, None, a.nombre, f"{formatear_tamano(a.tamano_bytes)} · v{a.version}",
+                                   tipo=tipo_archivo(a.nombre), on_click=lambda a=a: self._tocar(a))
+                icon_button(tr, "⋮", lambda a=a: self._detalles(a), size=34).pack()
 
     def _cuadricula(self, carpetas, archivos):
         def rejilla():
@@ -148,6 +169,7 @@ class StorageView(ctk.CTkFrame):
                 icono_tipo(t, tipo_archivo(c.nombre, True), 32).pack(side="left", padx=12)
                 ctk.CTkLabel(t, text=_cortar(c.nombre, 20), font=font("title_small"), anchor="w").pack(side="left")
                 bind_click(t, lambda c=c: self._entrar(c), hover=SURFACE_CONTAINER_HIGH)
+                t.bind("<Button-3>", lambda _e, c=c: self._detalles(c))
         if archivos:
             section_header(self.panel, "Archivos").pack(anchor="w", padx=16, pady=(14, 6))
             g = rejilla()
@@ -162,7 +184,7 @@ class StorageView(ctk.CTkFrame):
                     fill="x", padx=12)
                 ctk.CTkLabel(t, text=formatear_tamano(a.tamano_bytes), font=font("body_small"),
                              text_color=ON_SURFACE_VARIANT, anchor="w").pack(fill="x", padx=12, pady=(0, 10))
-                bind_click(t, lambda a=a: self._detalles(a), hover=SURFACE_CONTAINER_HIGH)
+                bind_click(t, lambda a=a: self._tocar(a), hover=SURFACE_CONTAINER_HIGH)
 
     # --- Migas de pan --------------------------------------------------------
     def _pintar_migas(self):
@@ -203,21 +225,51 @@ class StorageView(ctk.CTkFrame):
         self._pintar()
 
     # --- Detalles y acciones -------------------------------------------------
+    def _tocar(self, a):
+        """Imágenes y videos se abren en el visor; lo demás muestra detalles."""
+        if _es_imagen(a.nombre) or _es_video(a.nombre):
+            self._abrir(a)
+        else:
+            self._detalles(a)
+
+    def _abrir(self, a):
+        borrar = (lambda: self._borrar(a)) if not a.es_directorio else None
+        if _es_video(a.nombre):
+            Reproductor(self, a.nombre, lambda: self.repo.fuente_video(a.id), on_eliminar=borrar)
+        else:
+            VisorImagen(self, a.nombre, lambda: self.repo.leer(a.id), on_eliminar=borrar)
+
+    def _compartir(self, a):
+        CompartirDialog(self, self.app.api, elemento_id=a.id, nombre=a.nombre, es_directorio=a.es_directorio)
+
     def _detalles(self, a):
-        acciones = []
-        if self.repo.simulado:
-            acciones.append(("Abrir", lambda: open_with_system(str(self.repo.ruta_local(a.id))), "outlined"))
-        acciones += [
-            ("Eliminar", lambda: self._eliminar(a), ERROR),
-            ("Compartir", lambda: CompartirDialog(self, self.app.api, archivo_id=a.id, nombre=a.nombre), "tonal"),
-            ("Descargar", lambda: self._descargar(a), "primary"),
-        ]
-        DetailsDialog(self, a.nombre, tipo_archivo(a.nombre, a.es_directorio), [
+        ubicacion = ("Ubicación", " / ".join(n for _, n in self.ruta))
+        if a.es_directorio:
+            DetailsDialog(self, a.nombre, tipo_archivo(a.nombre, True), [ubicacion, ("Identificador", a.id)], [
+                ("Compartir", lambda: self._compartir(a), "tonal"),
+                ("Abrir", lambda: self._entrar(a), "primary"),
+            ])
+            return
+        acciones = [("Eliminar", lambda: self._eliminar(a), ERROR),
+                    ("Compartir", lambda: self._compartir(a), "tonal"),
+                    ("Descargar", lambda: self._descargar(a), "primary")]
+        if _es_imagen(a.nombre) or _es_video(a.nombre):
+            acciones.insert(1, ("Abrir", lambda: self._abrir(a), "outlined"))
+        DetailsDialog(self, a.nombre, tipo_archivo(a.nombre), [
             ("Tamaño", formatear_tamano(a.tamano_bytes)),
             ("Versión", f"v{a.version}"),
-            ("Ubicación", " / ".join(n for _, n in self.ruta)),
+            ubicacion,
             ("Identificador", a.id),
         ], acciones)
+
+    def _nueva_carpeta(self):
+        dialogo = ctk.CTkInputDialog(title="Nueva carpeta", text=f"Nombre de la carpeta en «{self.ruta[-1][1]}»:")
+        nombre = (dialogo.get_input() or "").strip()
+        if not nombre:
+            return
+        destino = self.dir_actual
+        run_async(self, lambda: self.repo.crear_carpeta(nombre, destino), lambda _c: self.recargar(),
+                  lambda e: messagebox.showerror("No se pudo crear la carpeta", describir(e)))
 
     def _upload(self):
         paths = filedialog.askopenfilenames(title="Seleccionar archivos para subir")
@@ -258,12 +310,14 @@ class StorageView(ctk.CTkFrame):
         if messagebox.askyesno("Descarga completa", f"Guardado en:\n{path}\n\n¿Abrir el archivo?"):
             open_with_system(path)
 
+    def _borrar(self, a):
+        run_async(self, lambda: self.repo.eliminar(a.id), lambda _r: self.recargar(),
+                  lambda e: messagebox.showerror("Error al eliminar", describir(e)))
+
     def _eliminar(self, a):
-        def borrar():
-            run_async(self, lambda: self.repo.eliminar(a.id), lambda _r: self.recargar(),
-                      lambda e: messagebox.showerror("Error al eliminar", describir(e)))
         ConfirmDialog(self, "🗑", "¿Eliminar archivo?",
-                      f"«{a.nombre}» se eliminará. Esta acción no se puede deshacer.", "Eliminar", borrar)
+                      f"«{a.nombre}» se eliminará. Esta acción no se puede deshacer.", "Eliminar",
+                      lambda: self._borrar(a))
 
 
 def _cortar(texto, n):

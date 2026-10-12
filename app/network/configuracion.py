@@ -7,9 +7,11 @@ configuración local (~/.upbcientifica/config.json) y se editan desde la vista
 Configuración, así que cambiar de PC a laboratorio no exige tocar código.
 
 Puertos (los mismos que usa el móvil):
-  - Auth SOAP: mock en 8080, node-soap real en 8081 (/soap/user.php)
+  - Auth SOAP: node-soap en 8081 (/soap/user.php); mock antiguo en 8080
   - Storage (node-repository): 8084
+  - Shared File (node-shared-file, en la VM node-repository): 8085
   - Photo Album + Streaming (node-media): 8083
+  - HPC (job-api, fachada REST del gestor RMI, en hpc-master): 8082
   - File Sync (node-sync, gRPC): 9090
 """
 
@@ -55,6 +57,10 @@ class Configuracion:
     def streaming_simulado(self):
         return bool(self.cfg.get("streaming_simulado", False))
 
+    @property
+    def hpc_simulado(self):
+        return bool(self.cfg.get("hpc_simulado", False))
+
     def _host(self, clave_lab):
         return self.cfg.get(clave_lab) if self.en_laboratorio else self.host_desarrollo
 
@@ -74,6 +80,16 @@ class Configuracion:
     @property
     def url_media(self):
         return f"http://{self._host('host_media_lab')}:8083/"
+
+    @property
+    def url_compartidos(self):
+        """Shared File vive en la misma VM que Storage (shared-file-svc)."""
+        return f"http://{self._host('host_storage_lab')}:8085/"
+
+    @property
+    def url_trabajos(self):
+        """job-api: el escritorio no habla RMI, habla REST con la fachada del gestor."""
+        return f"http://{self._host('host_hpc_lab')}:8082/"
 
     @property
     def direccion_sync(self):

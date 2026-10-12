@@ -11,16 +11,18 @@ from ..widgets import primary_button, ghost_button
 
 class ConexionForm(ctk.CTkFrame):
     SWITCHES = [
-        ("usar_mock_auth", "Usar el mock de autenticación (server.js, puerto 8080)"),
+        ("usar_mock_auth", "Usar el mock de autenticación antiguo (server.js, puerto 8080)"),
         ("storage_simulado", "Storage con datos simulados (Home local en vez de node-repository)"),
-        ("streaming_simulado", "Streaming con catálogo simulado (en vez de node-media)"),
-        ("shared_file_disponible", "Shared File disponible en el backend (/shared-file)"),
+        ("streaming_simulado", "Streaming y fotos simulados (en vez de node-media)"),
+        ("shared_file_disponible", "Shared File disponible (node-shared-file, puerto 8085)"),
+        ("hpc_simulado", "HPC simulado (en vez de job-api, puerto 8082)"),
     ]
     HOSTS_LAB = [
         ("host_soap_lab", "Auth SOAP (8081)"),
-        ("host_storage_lab", "Storage (8084)"),
+        ("host_storage_lab", "Storage (8084) y Shared File (8085)"),
         ("host_media_lab", "Media / Streaming (8083)"),
         ("host_sync_lab", "File Sync gRPC (9090)"),
+        ("host_hpc_lab", "HPC job-api (8082)"),
     ]
 
     def __init__(self, master, cfg):
