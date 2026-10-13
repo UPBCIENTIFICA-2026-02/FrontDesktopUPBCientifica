@@ -47,7 +47,7 @@ class ApiClient:
         c = self.conf
         demo = self.modo_demo
 
-        self.auth = AuthRepository(SoapClient(c.url_auth, NAMESPACE_AUTH), self.tokens)
+        self.auth = AuthRepository(SoapClient(c.url_auth, NAMESPACE_AUTH, contexto_ssl=c.contexto_tls()), self.tokens)
         self.storage = StorageRepository(
             RestClient(c.url_storage, self.tokens, "Storage"),
             usar_datos_simulados=demo or c.storage_simulado)
@@ -70,6 +70,7 @@ class ApiClient:
             self.filesync = FileSyncRepository(self.tokens, c.direccion_sync)
         else:
             self.filesync.direccion = c.direccion_sync
+        self.filesync.ca_tls = c.ca_sync
 
     # --- Autenticación (SOAP) ----------------------------------------------
     @property

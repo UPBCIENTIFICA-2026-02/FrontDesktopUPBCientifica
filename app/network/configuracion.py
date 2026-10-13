@@ -15,12 +15,19 @@ Puertos (los mismos que usa el móvil):
   - File Sync (node-sync, gRPC): 9090
 """
 
+import ssl
+from pathlib import Path
+
 ENTORNOS = ("LOCAL", "LABORATORIO")
 
 # targetNamespace del WSDL de node-soap. Es un IDENTIFICADOR del contrato, no
 # una dirección: no cambia aunque el servicio se mueva de máquina. El mock no
 # lo valida (despacha por SOAPAction), así que sirve para ambos casos.
 NAMESPACE_AUTH = "http://192.168.1.195/soap"
+
+# CA interna que firma los certificados de las VMs (node-soap 8081 y node-sync
+# 9090). Es pública: se descarga también en https://<node-web>/upbc-ca.crt.
+RUTA_CA = Path(__file__).resolve().parent.parent / "assets" / "upbc-ca.crt"
 
 
 class Configuracion:
@@ -94,6 +101,19 @@ class Configuracion:
     @property
     def direccion_sync(self):
         return f"{self._host('host_sync_lab')}:9090"
+
+    # --- TLS ------------------------------------------------------------------
+    def contexto_tls(self):
+        """Contexto HTTPS: raíces del sistema más la CA interna del proyecto."""
+        ctx = ssl.create_default_context()
+        if RUTA_CA.exists():
+            ctx.load_verify_locations(cafile=str(RUTA_CA))
+        return ctx
+
+    @property
+    def ca_sync(self):
+        """En el laboratorio node-sync va por gRPC/TLS; en el PC, en claro."""
+        return str(RUTA_CA) if self.en_laboratorio and RUTA_CA.exists() else None
 
     def descripcion_auth(self):
         return "Mock (server.js)" if self.usar_mock_auth else "node-soap"

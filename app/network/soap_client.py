@@ -11,10 +11,12 @@ from xml.sax.saxutils import escape
 
 
 class SoapClient:
-    def __init__(self, endpoint_url, namespace, timeout=15):
+    def __init__(self, endpoint_url, namespace, timeout=15, contexto_ssl=None):
         self.endpoint_url = endpoint_url
         self.namespace = namespace
         self.timeout = timeout
+        # node-soap va por HTTPS con un certificado de la CA interna del proyecto.
+        self.contexto_ssl = contexto_ssl
 
     def invoke(self, operation, params):
         """Invoca una operación. `params` va en el orden que declara el WSDL.
@@ -32,7 +34,7 @@ class SoapClient:
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with urllib.request.urlopen(req, timeout=self.timeout, context=self.contexto_ssl) as resp:
                 codigo, xml = resp.status, resp.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as e:
             codigo, xml = e.code, e.read().decode("utf-8", "replace")

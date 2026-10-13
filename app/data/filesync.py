@@ -181,8 +181,14 @@ TROZO = 256 * 1024
 
 
 class MotorSincronizacion:
-    def __init__(self, direccion, token):
-        self.canal = grpc.insecure_channel(direccion)
+    def __init__(self, direccion, token, ca=None):
+        # Con `ca` (PEM de la CA que firma a node-sync) el canal va por TLS, como
+        # en el laboratorio; sin ella, en claro (syncd local de desarrollo).
+        if ca:
+            with open(ca, "rb") as f:
+                self.canal = grpc.secure_channel(direccion, grpc.ssl_channel_credentials(f.read()))
+        else:
+            self.canal = grpc.insecure_channel(direccion)
         self.stub = pb_grpc.FileSyncStub(self.canal)
         self.md = [("authorization", f"Bearer {token}")]
 
@@ -365,6 +371,7 @@ class FileSyncRepository:
     def __init__(self, tokens, direccion, almacen=None):
         self.tokens = tokens
         self.direccion = direccion
+        self.ca_tls = None  # PEM de la CA de node-sync; None = canal en claro
         self.almacen = almacen or AlmacenSync()
         self.uid = None
         self.config = ConfigSync()
@@ -437,7 +444,7 @@ class FileSyncRepository:
             return True
 
     def _ejecutar(self, uid, token, modo):
-        motor = MotorSincronizacion(self.direccion, token)
+        motor = MotorSincronizacion(self.direccion, token, self.ca_tls)
         config = self.config
         inicio = time.time()
 
@@ -493,7 +500,7 @@ class FileSyncRepository:
         token = self.tokens.current_token()
         if not token:
             return
-        motor = MotorSincronizacion(self.direccion, token)
+        motor = MotorSincronizacion(self.direccion, token, self.ca_tls)
         try:
             visible = motor.alcanzable()
         finally:
