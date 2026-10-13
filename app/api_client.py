@@ -62,7 +62,8 @@ class ApiClient:
             if not isinstance(getattr(self, "hpc", None), SimuladorHpc):
                 self.hpc = SimuladorHpc()
         else:
-            self.hpc = HpcRepository(RestClient(c.url_trabajos, self.tokens, "HPC (job-api)"))
+            # Storage: el código y el dataset que se eligen del PC se suben al Home.
+            self.hpc = HpcRepository(RestClient(c.url_trabajos, self.tokens, "HPC (job-api)"), self.storage)
         # File Sync guarda estado (sesión, sincronización en curso): se conserva
         # y solo se le actualiza la dirección.
         if self.filesync is None:

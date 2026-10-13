@@ -25,7 +25,7 @@ Kotlin + Jetpack Compose):
 | Shared File         | HTTP/REST | **Conectado** a node-shared-file (8085): compartir archivos y carpetas con usuarios o grupos, "Conmigo" / "Que comparto", cambiar permiso, dejar de compartir |
 | Streaming           | HTTP/REST | **Conectado** a node-media (8083): catálogo propio + compartido ("Compartido por …"), ordenar (Recientes, Más vistos, Título), miniaturas reales, reproducción **dentro de la app**, eliminar lo propio |
 | Photo Album         | HTTP/REST | **Conectado** a node-media (8083): propio + compartido, ordenar, miniaturas, visor con zoom, eliminar lo propio. Lo nuevo aparece solo (node-media reindexa al cargar); "Buscar nuevas" lo fuerza |
-| HPC                 | REST → RMI | **Conectado** a job-api (8082), la fachada REST del gestor RMI: enviar (nombre, comando, prioridad), listar, ver salida y cancelar |
+| HPC                 | REST → RMI | **Conectado** a job-api (8082), la fachada REST del gestor RMI: enviar código fuente + dataset (se eligen del PC y se suben a "Trabajos HPC" del Home, o se escribe su ruta en el Home), procesos, tiempo máximo, prioridad y parámetros; estado del clúster y de los nodos; registros; resultado en "Resultados HPC"; cancelar y reintentar |
 | File Sync           | gRPC      | **Conectado** a node-sync (9090; guarda a través de Storage). Carpeta del PC ↔ carpeta del Home ("Respaldo <PC>"); manual, al conectarse a la red del servidor, cada hora o diaria; conflictos con ambas versiones. La programación corre mientras la app está abierta con la sesión iniciada |
 
 **Imágenes y videos se ven dentro de la app** (`app/views/visor.py`): el
