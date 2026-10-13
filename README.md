@@ -23,10 +23,10 @@ Kotlin + Jetpack Compose):
 | Authentication      | SOAP      | **Conectado** a node-soap (8081, `/soap/user.php`) |
 | Distributed Storage | HTTP/REST | **Conectado** a node-repository (8084): navegar, subir, crear carpeta, descargar, eliminar, cuota |
 | Shared File         | HTTP/REST | **Conectado** a node-shared-file (8085): compartir archivos y carpetas con usuarios o grupos, "Conmigo" / "Que comparto", cambiar permiso, dejar de compartir |
-| Streaming           | HTTP/REST | **Conectado** a node-media (8083): catálogo, reproducción **dentro de la app**, eliminar, buscar contenido nuevo |
-| Photo Album         | HTTP/REST | **Conectado** a node-media (8083): miniaturas, visor con zoom, eliminar |
+| Streaming           | HTTP/REST | **Conectado** a node-media (8083): catálogo propio + compartido ("Compartido por …"), ordenar (Recientes, Más vistos, Título), miniaturas reales, reproducción **dentro de la app**, eliminar lo propio |
+| Photo Album         | HTTP/REST | **Conectado** a node-media (8083): propio + compartido, ordenar, miniaturas, visor con zoom, eliminar lo propio. Lo nuevo aparece solo (node-media reindexa al cargar); "Buscar nuevas" lo fuerza |
 | HPC                 | REST → RMI | **Conectado** a job-api (8082), la fachada REST del gestor RMI: enviar (nombre, comando, prioridad), listar, ver salida y cancelar |
-| File Sync           | gRPC      | Real: node-sync 9090 (guarda a través de Storage). Carpeta local ↔ carpeta del Home; manual, al conectarse a la red del servidor, cada hora o diaria |
+| File Sync           | gRPC      | **Conectado** a node-sync (9090; guarda a través de Storage). Carpeta del PC ↔ carpeta del Home ("Respaldo <PC>"); manual, al conectarse a la red del servidor, cada hora o diaria; conflictos con ambas versiones. La programación corre mientras la app está abierta con la sesión iniciada |
 
 **Imágenes y videos se ven dentro de la app** (`app/views/visor.py`): el
 reproductor (PyAV + sounddevice) pide el video por rangos con el token en la
@@ -158,10 +158,20 @@ de cada módulo en `app/data/`):
 - **Storage (REST):** `GET /storage/directorios/{id}` (raíz = `root`),
   `POST /storage/archivos` (multipart, campo `archivo`, `?directorioDestino=&sobrescribir=`),
   `GET /storage/archivos/{id}/descargar`, `DELETE /storage/archivos/{id}`.
-- **Shared File (REST):** `POST /shared-file/compartir`,
-  `GET /shared-file/compartidos-conmigo`, `DELETE /shared-file/compartir/{id}`.
-- **Streaming (REST):** `GET /streaming/catalogo?pagina=N`,
-  `GET /streaming/buscar?criterioTexto=...`, `GET /streaming/{id}/sesion`.
+- **Shared File (REST):** `POST /shared-file/compartir`, `POST /shared-file/compartir-directorio`,
+  `GET /shared-file/compartidos-conmigo`, `GET /shared-file/que-yo-comparto`,
+  `PATCH` y `DELETE /shared-file/compartir/{id}`.
+- **Photo Album y Streaming (REST):** `GET /album/fotos?pagina=N&ordenPor=`,
+  `GET /streaming/catalogo?pagina=N&ordenPor=`, `GET /streaming/{id}/sesion`,
+  `GET /streaming/{id}/miniatura`, `GET /album/fotos/{id}/miniatura`
+  (contrato: `UPB-CIENTIFICA/docs/contratos/Contrato PhotoAlbum.md` y las adendas).
+- **File Sync (gRPC):** `IniciarSync`, `SubirArchivo`, `DescargarArchivo`,
+  `EliminarArchivo`, `EstadoSync`. Los stubs están en `app/network/filesync_pb/`
+  (generados de `node-sync/proto/filesync/filesync.proto`; el `__init__.py` dice
+  cómo regenerarlos).
+
+Contratos y cambios de API: `UPB-CIENTIFICA/docs/contratos/` (incluye
+`Adendas a los contratos.md`).
 
 ## Modos de prueba
 
